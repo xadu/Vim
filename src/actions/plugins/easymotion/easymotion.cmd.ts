@@ -70,15 +70,15 @@ abstract class BaseEasyMotionCommand extends BaseCommand {
 @RegisterAction
 class ActionEasyMotionSearchCommand extends BaseEasyMotionCommand {
   modes = [ModeName.Normal, ModeName.Visual, ModeName.VisualLine, ModeName.VisualBlock];
-  keys = ['<leader>', '<leader>', 's', '<character>'];
+  keys = ['<leader>', 'g', '<character>', '<character>'];
 
   public getMatches(position: Position, vimState: VimState): EasyMotion.Match[] {
-    const searchChar = this.keysPressed[3];
+    const searchChar = `${this.keysPressed[2]}${this.keysPressed[3]}`;
 
     // Search all occurences of the character pressed
-    if (searchChar === ' ') {
-      // Searching for space should only find the first space
-      return vimState.easyMotion.sortedSearch(position, new RegExp(' {1,}', 'g'));
+    if (searchChar === '  ') {
+      // Searching for spaces should only find the first spaces
+      return vimState.easyMotion.sortedSearch(position, new RegExp('  {1,}', 'g'));
     } else {
       return vimState.easyMotion.sortedSearch(position, searchChar);
     }
@@ -88,15 +88,15 @@ class ActionEasyMotionSearchCommand extends BaseEasyMotionCommand {
 @RegisterAction
 class ActionEasyMotionFindForwardCommand extends BaseEasyMotionCommand {
   modes = [ModeName.Normal, ModeName.Visual, ModeName.VisualLine, ModeName.VisualBlock];
-  keys = ['<leader>', '<leader>', 'f', '<character>'];
+  keys = ['<leader>', 'f', '<character>', '<character>'];
 
   public getMatches(position: Position, vimState: VimState): EasyMotion.Match[] {
-    const searchChar = this.keysPressed[3];
+    const searchChar = `${this.keysPressed[2]}${this.keysPressed[3]}`;
 
     // Search all occurences of the character pressed after the cursor
-    if (searchChar === ' ') {
-      // Searching for space should only find the first space
-      return vimState.easyMotion.sortedSearch(position, new RegExp(' {1,}', 'g'), {
+    if (searchChar === '  ') {
+      // Searching for spaces should only find the first spaces
+      return vimState.easyMotion.sortedSearch(position, new RegExp('  {1,}', 'g'), {
         min: position,
       });
     } else {
@@ -110,15 +110,15 @@ class ActionEasyMotionFindForwardCommand extends BaseEasyMotionCommand {
 @RegisterAction
 class ActionEasyMotionFindBackwardCommand extends BaseEasyMotionCommand {
   modes = [ModeName.Normal, ModeName.Visual, ModeName.VisualLine, ModeName.VisualBlock];
-  keys = ['<leader>', '<leader>', 'F', '<character>'];
+  keys = ['<leader>', 'F', '<character>', '<character>'];
 
   public getMatches(position: Position, vimState: VimState): EasyMotion.Match[] {
-    const searchChar = this.keysPressed[3];
+    const searchChar = `${this.keysPressed[2]}${this.keysPressed[3]}`;
 
     // Search all occurences of the character pressed after the cursor
-    if (searchChar === ' ') {
-      // Searching for space should only find the first space
-      return vimState.easyMotion.sortedSearch(position, new RegExp(' {1,}', 'g'), {
+    if (searchChar === '  ') {
+      // Searching for spaces should only find the first spaces
+      return vimState.easyMotion.sortedSearch(position, new RegExp('  {1,}', 'g'), {
         max: position,
       });
     } else {
@@ -132,15 +132,15 @@ class ActionEasyMotionFindBackwardCommand extends BaseEasyMotionCommand {
 @RegisterAction
 class ActionEasyMotionTilForwardCommand extends BaseEasyMotionCommand {
   modes = [ModeName.Normal, ModeName.Visual, ModeName.VisualLine, ModeName.VisualBlock];
-  keys = ['<leader>', '<leader>', 't', '<character>'];
+  keys = ['<leader>', 't', '<character>', '<character>'];
 
   public getMatches(position: Position, vimState: VimState): EasyMotion.Match[] {
-    const searchChar = this.keysPressed[3];
+    const searchChar = `${this.keysPressed[2]}${this.keysPressed[3]}`;
 
     // Search all occurences of the character pressed after the cursor
-    if (searchChar === ' ') {
-      // Searching for space should only find the first space
-      return vimState.easyMotion.sortedSearch(position, new RegExp(' {1,}', 'g'), {
+    if (searchChar === '  ') {
+      // Searching for spaces should only find the first spaces
+      return vimState.easyMotion.sortedSearch(position, new RegExp('  {1,}', 'g'), {
         min: position,
       });
     } else {
@@ -162,15 +162,15 @@ class ActionEasyMotionTilForwardCommand extends BaseEasyMotionCommand {
 @RegisterAction
 class ActionEasyMotionTilBackwardCommand extends BaseEasyMotionCommand {
   modes = [ModeName.Normal, ModeName.Visual, ModeName.VisualLine, ModeName.VisualBlock];
-  keys = ['<leader>', '<leader>', 'T', '<character>'];
+  keys = ['<leader>', 'T', '<character>', '<character>'];
 
   public getMatches(position: Position, vimState: VimState): EasyMotion.Match[] {
-    const searchChar = this.keysPressed[3];
+    const searchChar = `${this.keysPressed[2]}${this.keysPressed[3]}`;
 
     // Search all occurences of the character pressed after the cursor
-    if (searchChar === ' ') {
-      // Searching for space should only find the first space
-      return vimState.easyMotion.sortedSearch(position, new RegExp(' {1,}'), {
+    if (searchChar === '  ') {
+      // Searching for spaces should only find the first spaces
+      return vimState.easyMotion.sortedSearch(position, new RegExp('  {1,}'), {
         max: position,
       });
     } else {
@@ -190,47 +190,30 @@ class ActionEasyMotionTilBackwardCommand extends BaseEasyMotionCommand {
 }
 
 @RegisterAction
-class ActionEasyMotionWordCommand extends BaseEasyMotionCommand {
+class ActionEasyMotionWordForwardsCommand extends BaseEasyMotionCommand {
   modes = [ModeName.Normal, ModeName.Visual, ModeName.VisualLine, ModeName.VisualBlock];
-  keys = ['<leader>', '<leader>', 'w'];
+  keys = ['<leader>', 's', '<character>'];
 
   public getMatches(position: Position, vimState: VimState): EasyMotion.Match[] {
+    const searchChar = this.keysPressed[2];
+    const regex = `\\b${searchChar}`;
     // Search for the beginning of all words after the cursor
-    return vimState.easyMotion.sortedSearch(position, new RegExp('\\w{1,}', 'g'), {
+    return vimState.easyMotion.sortedSearch(position, new RegExp(regex, 'g'), {
       min: position,
     });
   }
 }
 
 @RegisterAction
-class ActionEasyMotionEndForwardCommand extends BaseEasyMotionCommand {
+class ActionEasyMotionWordBackwardsCommand extends BaseEasyMotionCommand {
   modes = [ModeName.Normal, ModeName.Visual, ModeName.VisualLine, ModeName.VisualBlock];
-  keys = ['<leader>', '<leader>', 'e'];
+  keys = ['<leader>', 'S', '<character>'];
 
   public getMatches(position: Position, vimState: VimState): EasyMotion.Match[] {
+    const searchChar = this.keysPressed[2];
+    const regex = `\\b${searchChar}`;
     // Search for the end of all words after the cursor
-    return vimState.easyMotion.sortedSearch(position, new RegExp('\\w{1,}', 'g'), {
-      min: position,
-    });
-  }
-
-  public getMatchPosition(
-    match: EasyMotion.Match,
-    position: Position,
-    vimState: VimState
-  ): Position {
-    return new Position(match.position.line, match.position.character + match.text.length - 1);
-  }
-}
-
-@RegisterAction
-class ActionEasyMotionEndBackwardCommand extends BaseEasyMotionCommand {
-  modes = [ModeName.Normal, ModeName.Visual, ModeName.VisualLine, ModeName.VisualBlock];
-  keys = ['<leader>', '<leader>', 'g', 'e'];
-
-  public getMatches(position: Position, vimState: VimState): EasyMotion.Match[] {
-    // Search for the beginning of all words before the cursor
-    return vimState.easyMotion.sortedSearch(position, new RegExp('\\w{1,}', 'g'), {
+    return vimState.easyMotion.sortedSearch(position, new RegExp(regex, 'g'), {
       max: position,
     });
   }
@@ -241,26 +224,13 @@ class ActionEasyMotionEndBackwardCommand extends BaseEasyMotionCommand {
     vimState: VimState
   ): Position {
     return new Position(match.position.line, match.position.character + match.text.length - 1);
-  }
-}
-
-@RegisterAction
-class ActionEasyMotionBeginningWordCommand extends BaseEasyMotionCommand {
-  modes = [ModeName.Normal, ModeName.Visual, ModeName.VisualLine, ModeName.VisualBlock];
-  keys = ['<leader>', '<leader>', 'b'];
-
-  public getMatches(position: Position, vimState: VimState): EasyMotion.Match[] {
-    // Search for the beginning of all words before the cursor
-    return vimState.easyMotion.sortedSearch(position, new RegExp('\\w{1,}', 'g'), {
-      max: position,
-    });
   }
 }
 
 @RegisterAction
 class ActionEasyMotionDownLines extends BaseEasyMotionCommand {
   modes = [ModeName.Normal, ModeName.Visual, ModeName.VisualLine, ModeName.VisualBlock];
-  keys = ['<leader>', '<leader>', 'j'];
+  keys = ['<leader>', 'j'];
 
   public getMatches(position: Position, vimState: VimState): EasyMotion.Match[] {
     // Search for the beginning of all non whitespace chars on each line after the cursor
@@ -278,7 +248,7 @@ class ActionEasyMotionDownLines extends BaseEasyMotionCommand {
 @RegisterAction
 class ActionEasyMotionUpLines extends BaseEasyMotionCommand {
   modes = [ModeName.Normal, ModeName.Visual, ModeName.VisualLine, ModeName.VisualBlock];
-  keys = ['<leader>', '<leader>', 'k'];
+  keys = ['<leader>', 'k'];
 
   public getMatches(position: Position, vimState: VimState): EasyMotion.Match[] {
     // Search for the beginning of all non whitespace chars on each line before the cursor
