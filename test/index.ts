@@ -9,19 +9,23 @@
 // host can call to run the tests. The test runner is expected to use console.log
 // to report the results back to the caller. When the tests are finished, return
 // a possible error to the callback or null if none.
-
 import { Globals } from '../src/globals';
-
-var testRunner = require('vscode/lib/testrunner');
+import { Configuration } from './testConfiguration';
 
 Globals.isTesting = true;
+Globals.mockConfiguration = new Configuration();
 
-// You can directly control Mocha options by uncommenting the following lines
 // See https://github.com/mochajs/mocha/wiki/Using-mocha-programmatically#set-options for more info
-testRunner.configure({
+var testRunner = require('vscode/lib/testrunner');
+// create new RegExp to catch errors early, ie before passing it to mocha
+const mochaGrep = new RegExp(process.env.MOCHA_GREP || '');
+const testRunnerConfiguration: MochaSetupOptions = {
   ui: 'tdd',
   useColors: true,
   timeout: 10000,
-});
+  grep: mochaGrep,
+};
+
+testRunner.configure(testRunnerConfiguration);
 
 module.exports = testRunner;

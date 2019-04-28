@@ -1,19 +1,20 @@
-import { parseQuitCommandArgs, parseQuitAllCommandArgs } from './subparsers/quit';
-import { parseWriteCommandArgs } from './subparsers/write';
-import { parseWallCommandArgs } from './subparsers/wall';
-import { parseNohlCommandArgs } from './subparsers/nohl';
-import { parseWriteQuitCommandArgs } from './subparsers/writequit';
-import { parseWriteQuitAllCommandArgs } from './subparsers/writequitall';
-import * as tabCmd from './subparsers/tab';
+import { parseCloseCommandArgs } from './subparsers/close';
+import { parseDeleteRangeLinesCommandArgs } from './subparsers/deleteRange';
+import { parseDigraphCommandArgs } from './subparsers/digraph';
 import * as fileCmd from './subparsers/file';
-import { parseOptionsCommandArgs } from './subparsers/setoptions';
-import { parseSubstituteCommandArgs } from './subparsers/substitute';
+import { parseNohlCommandArgs } from './subparsers/nohl';
+import { parseOnlyCommandArgs } from './subparsers/only';
+import { parseQuitAllCommandArgs, parseQuitCommandArgs } from './subparsers/quit';
 import { parseReadCommandArgs } from './subparsers/read';
 import { parseRegisterCommandArgs } from './subparsers/register';
-import { parseDeleteRangeLinesCommandArgs } from './subparsers/deleteRange';
+import { parseOptionsCommandArgs } from './subparsers/setoptions';
 import { parseSortCommandArgs } from './subparsers/sort';
-import { parseCloseCommandArgs } from './subparsers/close';
-import { parseOnlyCommandArgs } from './subparsers/only';
+import { parseSubstituteCommandArgs } from './subparsers/substitute';
+import * as tabCmd from './subparsers/tab';
+import { parseWallCommandArgs } from './subparsers/wall';
+import { parseWriteCommandArgs } from './subparsers/write';
+import { parseWriteQuitCommandArgs } from './subparsers/writequit';
+import { parseWriteQuitAllCommandArgs } from './subparsers/writequitall';
 
 // maps command names to parsers for said commands.
 export const commandParsers = {
@@ -71,19 +72,24 @@ export const commandParsers = {
 
   tabm: tabCmd.parseTabMovementCommandArgs,
 
-  e: fileCmd.parseEditFileCommandArgs,
-
   s: parseSubstituteCommandArgs,
 
-  vs: fileCmd.parseEditFileInNewWindowCommandArgs,
-  vsp: fileCmd.parseEditFileInNewWindowCommandArgs,
-  sp: fileCmd.parseEditFileInNewWindowCommandArgs,
-  split: fileCmd.parseEditFileInNewWindowCommandArgs,
-  vsplit: fileCmd.parseEditFileInNewWindowCommandArgs,
-  ne: fileCmd.parseEditNewFileInNewWindowCommandArgs,
-  vne: fileCmd.parseEditNewFileInNewWindowCommandArgs,
-  new: fileCmd.parseEditNewFileInNewWindowCommandArgs,
-  vnew: fileCmd.parseEditNewFileInNewWindowCommandArgs,
+  e: fileCmd.parseEditFileCommandArgs,
+  edit: fileCmd.parseEditFileCommandArgs,
+  ene: fileCmd.parseEditNewFileCommandArgs,
+  enew: fileCmd.parseEditNewFileCommandArgs,
+
+  sp: fileCmd.parseEditFileInNewHorizontalWindowCommandArgs,
+  split: fileCmd.parseEditFileInNewHorizontalWindowCommandArgs,
+  vs: fileCmd.parseEditFileInNewVerticalWindowCommandArgs,
+  vsp: fileCmd.parseEditFileInNewVerticalWindowCommandArgs,
+  vsplit: fileCmd.parseEditFileInNewVerticalWindowCommandArgs,
+
+  new: fileCmd.parseEditNewFileInNewHorizontalWindowCommandArgs,
+  vne: fileCmd.parseEditNewFileInNewVerticalWindowCommandArgs,
+  vnew: fileCmd.parseEditNewFileInNewVerticalWindowCommandArgs,
+
+  on: parseOnlyCommandArgs,
   only: parseOnlyCommandArgs,
 
   set: parseOptionsCommandArgs,
@@ -93,6 +99,11 @@ export const commandParsers = {
   r: parseReadCommandArgs,
 
   reg: parseRegisterCommandArgs,
+
+  dig: parseDigraphCommandArgs,
+  digr: parseDigraphCommandArgs,
+  digraph: parseDigraphCommandArgs,
+  digraphs: parseDigraphCommandArgs,
 
   d: parseDeleteRangeLinesCommandArgs,
 

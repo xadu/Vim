@@ -1,23 +1,53 @@
-import { TextEditor } from '../src/textEditor';
-import * as vscode from 'vscode';
 import * as assert from 'assert';
-import { join } from 'path';
-import * as os from 'os';
 import * as fs from 'fs';
-import { Configuration } from '../src/configuration/configuration';
+import * as os from 'os';
+import { join } from 'path';
+import * as vscode from 'vscode';
 
-function rndName() {
-  return Math.random().toString(36).replace(/[^a-z]+/g, '').substr(0, 10);
+import { Configuration } from './testConfiguration';
+import { Globals } from '../src/globals';
+import { ValidatorResults } from '../src/configuration/iconfigurationValidator';
+import { IConfiguration } from '../src/configuration/iconfiguration';
+import { TextEditor } from '../src/textEditor';
+import { getAndUpdateModeHandler } from '../extension';
+import { commandLine } from '../src/cmd_line/commandLine';
+
+export function rndName(): string {
+  return Math.random()
+    .toString(36)
+    .replace(/[^a-z]+/g, '')
+    .substr(0, 10);
 }
 
-async function createRandomFile(contents: string, fileExtension: string): Promise<vscode.Uri> {
+export async function createRandomFile(contents: string, fileExtension: string): Promise<string> {
   const tmpFile = join(os.tmpdir(), rndName() + fileExtension);
+  fs.writeFileSync(tmpFile, contents);
+  return tmpFile;
+}
+
+/**
+ * Waits for the number of text editors in the current window to equal the
+ * given expected number of text editors.
+ *
+ * @param numExpectedEditors Expected number of editors in the window
+ */
+export async function WaitForEditorsToClose(numExpectedEditors: number = 0): Promise<void> {
+  let waitForTextEditorsToClose = new Promise((c, e) => {
+    if (vscode.window.visibleTextEditors.length === numExpectedEditors) {
+      return c();
+    }
+
+    vscode.window.onDidChangeVisibleTextEditors(() => {
+      if (vscode.window.visibleTextEditors.length === numExpectedEditors) {
+        c();
+      }
+    });
+  });
 
   try {
-    fs.writeFileSync(tmpFile, contents);
-    return vscode.Uri.file(tmpFile);
+    await waitForTextEditorsToClose;
   } catch (error) {
-    throw error;
+    assert.fail(null, null, error.toString(), '');
   }
 }
 
@@ -45,18 +75,36 @@ export function assertEqual<T>(one: T, two: T, message: string = ''): void {
   assert.equal(one, two, message);
 }
 
-export async function setupWorkspace(fileExtension: string = ''): Promise<any> {
-  const file = await createRandomFile('', fileExtension);
-  const doc = await vscode.workspace.openTextDocument(file);
+export async function setupWorkspace(
+  config: IConfiguration = new Configuration(),
+  fileExtension: string = ''
+): Promise<any> {
+  await commandLine.load();
+  const filePath = await createRandomFile('', fileExtension);
+  const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(filePath));
 
   await vscode.window.showTextDocument(doc);
-  setTextEditorOptions(2, true);
 
-  assert.ok(vscode.window.activeTextEditor);
+  Globals.mockConfiguration = config;
+  await reloadConfiguration();
+
+  let activeTextEditor = vscode.window.activeTextEditor;
+  assert.ok(activeTextEditor);
+
+  activeTextEditor!.options.tabSize = config.tabstop;
+  activeTextEditor!.options.insertSpaces = config.expandtab;
+
+  await mockAndEnable();
 }
 
+const mockAndEnable = async () => {
+  await vscode.commands.executeCommand('setContext', 'vim.active', true);
+  const mh = await getAndUpdateModeHandler();
+  Globals.mockModeHandler = mh;
+  await mh.handleKeyEvent('<ExtensionEnable>');
+};
+
 export async function cleanUpWorkspace(): Promise<any> {
-  // https://github.com/Microsoft/vscode/blob/master/extensions/vscode-api-tests/src/utils.ts
   return new Promise((c, e) => {
     if (vscode.window.visibleTextEditors.length === 0) {
       return c();
@@ -82,17 +130,32 @@ export async function cleanUpWorkspace(): Promise<any> {
       }
     );
   }).then(() => {
-    assert.equal(vscode.window.visibleTextEditors.length, 0);
-    assert(!vscode.window.activeTextEditor);
+    assert.equal(vscode.window.visibleTextEditors.length, 0, 'Expected all editors closed.');
+    assert(!vscode.window.activeTextEditor, 'Expected no active text editor.');
   });
 }
 
-export function setTextEditorOptions(tabSize: number, insertSpaces: boolean): void {
-  Configuration.enableNeovim = false;
-  Configuration.tabstop = tabSize;
-  Configuration.expandtab = insertSpaces;
-  let options = vscode.window.activeTextEditor!.options;
-  options.tabSize = tabSize;
-  options.insertSpaces = insertSpaces;
-  vscode.window.activeTextEditor!.options = options;
+export async function reloadConfiguration() {
+  let validatorResults = (await require('../src/configuration/configuration').configuration.load()) as ValidatorResults;
+  for (let validatorResult of validatorResults.get()) {
+    console.log(validatorResult);
+  }
+}
+
+/**
+ * Waits for the tabs to change after a command like 'gt' or 'gT' is run.
+ * Sometimes it is not immediate, so we must busy wait
+ * On certain versions, the tab changes are synchronous
+ * For those, a timeout is given
+ */
+export async function waitForTabChange(): Promise<void> {
+  await new Promise((resolve, reject) => {
+    setTimeout(resolve, 500);
+
+    const disposer = vscode.window.onDidChangeActiveTextEditor(textEditor => {
+      disposer.dispose();
+
+      resolve(textEditor);
+    });
+  });
 }

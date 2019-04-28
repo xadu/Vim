@@ -1,8 +1,9 @@
 import * as vscode from 'vscode';
+
+import { configuration } from '../configuration/configuration';
 import { Position } from './../common/motion/position';
-import { TextEditor } from './../textEditor';
-import { Configuration } from '../../src/configuration/configuration';
 import { ModeName } from './../mode/mode';
+import { TextEditor } from './../textEditor';
 
 export enum SearchDirection {
   Forward = 1,
@@ -15,6 +16,7 @@ export enum SearchDirection {
 export class SearchState {
   private static readonly MAX_SEARCH_RANGES = 1000;
   private static specialCharactersRegex: RegExp = /[\-\[\]{}()*+?.,\\\^$|#\s]/g;
+  private static caseOverrideRegex: RegExp = /\\[Cc]/g;
   public previousMode = ModeName.Normal;
 
   private _matchRanges: vscode.Range[] = [];
@@ -34,6 +36,10 @@ export class SearchState {
   private _cachedDocumentVersion: number;
   private _cachedDocumentName: String;
   private _searchDirection: SearchDirection = SearchDirection.Forward;
+  public get searchDirection(): SearchDirection {
+    return this._searchDirection;
+  }
+
   private isRegex: boolean;
 
   private _searchString = '';
@@ -56,9 +62,10 @@ export class SearchState {
 
     // checking if the tab that is worked on has changed, or the file version has changed
     const shouldRecalculate =
-      this._cachedDocumentName !== TextEditor.getDocumentName() ||
-      this._cachedDocumentVersion !== TextEditor.getDocumentVersion() ||
-      forceRecalc;
+      TextEditor.isActive &&
+      (this._cachedDocumentName !== TextEditor.getDocumentName() ||
+        this._cachedDocumentVersion !== TextEditor.getDocumentVersion() ||
+        forceRecalc);
 
     if (shouldRecalculate) {
       // Calculate and store all matching ranges
@@ -72,18 +79,26 @@ export class SearchState {
        * If ignorecase is true, the search should be case insensitive.
        * If both ignorecase and smartcase are true, the search is case sensitive only when the search string contains UpperCase character.
        */
-      let ignorecase = Configuration.ignorecase;
+      let ignorecase = configuration.ignorecase;
 
-      if (ignorecase && Configuration.smartcase && /[A-Z]/.test(search)) {
+      if (ignorecase && configuration.smartcase && /[A-Z]/.test(search)) {
         ignorecase = false;
       }
 
+      let ignorecaseOverride = search.match(SearchState.caseOverrideRegex);
       let searchRE = search;
+
+      if (ignorecaseOverride) {
+        // Vim strips all \c's but uses the behavior of the first one.
+        searchRE = search.replace(SearchState.caseOverrideRegex, '');
+        ignorecase = ignorecaseOverride[0][1] === 'c';
+      }
+
       if (!this.isRegex) {
         searchRE = search.replace(SearchState.specialCharactersRegex, '\\$&');
       }
 
-      const regexFlags = ignorecase ? 'gi' : 'g';
+      const regexFlags = ignorecase ? 'gim' : 'gm';
 
       let regex: RegExp;
       try {
@@ -101,7 +116,7 @@ export class SearchState {
       const finalPos = new Position(TextEditor.getLineCount() - 1, 0).getLineEndIncludingEOL();
       const text = TextEditor.getText(new vscode.Range(new Position(0, 0), finalPos));
       const lineLengths = text.split('\n').map(x => x.length + 1);
-      let sumLineLengths = [];
+      let sumLineLengths: number[] = [];
       let curLength = 0;
       for (const length of lineLengths) {
         sumLineLengths.push(curLength);
@@ -145,7 +160,7 @@ export class SearchState {
           break;
         }
 
-        this.matchRanges.push(
+        this._matchRanges.push(
           new vscode.Range(
             absPosToPosition(result.index, 0, sumLineLengths.length, sumLineLengths),
             absPosToPosition(
@@ -168,18 +183,18 @@ export class SearchState {
         }
       } while (result && !(wrappedOver && result!.index > startPos));
 
-      this._matchRanges.sort(
-        (x, y) =>
-          x.start.line < y.start.line ||
-          (x.start.line === y.start.line && x.start.character < y.start.character)
-            ? -1
-            : 1
+      this._matchRanges.sort((x, y) =>
+        x.start.line < y.start.line ||
+        (x.start.line === y.start.line && x.start.character < y.start.character)
+          ? -1
+          : 1
       );
     }
   }
 
   /**
-   * The position of the next search, or undefined if there is no match.
+   * The position of the next search.
+   * match == false if there is no match.
    *
    * Pass in -1 as direction to reverse the direction we search.
    */
@@ -187,11 +202,27 @@ export class SearchState {
     startPosition: Position,
     direction = 1
   ): { pos: Position; match: boolean } {
+    const { start, match } = this.getNextSearchMatchRange(startPosition, direction);
+    return { pos: start, match };
+  }
+
+  /**
+   * The position of the next search.
+   * match == false if there is no match.
+   *
+   * Pass in -1 as direction to reverse the direction we search.
+   *
+   * end is exclusive; which means the index is start + matchedString.length
+   */
+  public getNextSearchMatchRange(
+    startPosition: Position,
+    direction: number = 1
+  ): { start: Position; end: Position; match: boolean } {
     this._recalculateSearchRanges();
 
     if (this._matchRanges.length === 0) {
       // TODO(bell)
-      return { pos: startPosition, match: false };
+      return { start: startPosition, end: startPosition, match: false };
     }
 
     const effectiveDirection = direction * this._searchDirection;
@@ -199,26 +230,63 @@ export class SearchState {
     if (effectiveDirection === SearchDirection.Forward) {
       for (let matchRange of this._matchRanges) {
         if (matchRange.start.compareTo(startPosition) > 0) {
-          return { pos: Position.FromVSCodePosition(matchRange.start), match: true };
+          return {
+            start: Position.FromVSCodePosition(matchRange.start),
+            end: Position.FromVSCodePosition(matchRange.end),
+            match: true,
+          };
         }
       }
 
       // Wrap around
       // TODO(bell)
-      return { pos: Position.FromVSCodePosition(this._matchRanges[0].start), match: true };
+      const range = this._matchRanges[0];
+      return {
+        start: Position.FromVSCodePosition(range.start),
+        end: Position.FromVSCodePosition(range.end),
+        match: true,
+      };
     } else {
       for (let matchRange of this._matchRanges.slice(0).reverse()) {
         if (matchRange.start.compareTo(startPosition) < 0) {
-          return { pos: Position.FromVSCodePosition(matchRange.start), match: true };
+          return {
+            start: Position.FromVSCodePosition(matchRange.start),
+            end: Position.FromVSCodePosition(matchRange.end),
+            match: true,
+          };
         }
       }
 
       // TODO(bell)
+      const range = this._matchRanges[this._matchRanges.length - 1];
       return {
-        pos: Position.FromVSCodePosition(this._matchRanges[this._matchRanges.length - 1].start),
+        start: Position.FromVSCodePosition(range.start),
+        end: Position.FromVSCodePosition(range.end),
         match: true,
       };
     }
+  }
+
+  public getSearchMatchRangeOf(pos: Position): { start: Position; end: Position; match: boolean } {
+    this._recalculateSearchRanges();
+
+    if (this._matchRanges.length === 0) {
+      // TODO(bell)
+      return { start: pos, end: pos, match: false };
+    }
+
+    for (let matchRange of this._matchRanges) {
+      if (matchRange.start.compareTo(pos) <= 0 && matchRange.end.compareTo(pos) > 0) {
+        return {
+          start: Position.FromVSCodePosition(matchRange.start),
+          end: Position.FromVSCodePosition(matchRange.end),
+          match: true,
+        };
+      }
+    }
+
+    // TODO(bell)
+    return { start: pos, end: pos, match: false };
   }
 
   constructor(

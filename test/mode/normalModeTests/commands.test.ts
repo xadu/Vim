@@ -1,7 +1,6 @@
-import { setupWorkspace, cleanUpWorkspace } from './../../testUtils';
 import { ModeName } from '../../../src/mode/mode';
-import { ModeHandler } from '../../../src/mode/modeHandler';
 import { getTestingFunctions } from '../../testSimplifier';
+import { cleanUpWorkspace, setupWorkspace } from './../../testUtils';
 
 suite('Mode Normal', () => {
   let { newTest, newTestOnly } = getTestingFunctions();
@@ -24,6 +23,13 @@ suite('Mode Normal', () => {
     start: ['te|xt'],
     keysPressed: '2x',
     end: ['t|e'],
+  });
+
+  newTest({
+    title: "Can handle 'Nx' and paste",
+    start: ['t|ext'],
+    keysPressed: '2xo<Esc>p',
+    end: ['tt', 'e|x'],
   });
 
   newTest({
@@ -266,5 +272,19 @@ suite('Mode Normal', () => {
     start: ['one', '|two', 'three'],
     keysPressed: 'ddkPjddu',
     end: ['two', '|one', 'three'],
+  });
+
+  newTest({
+    title: "Can handle 'ge' in multiple lines case1",
+    start: ['one two', 'three', 'four five|'],
+    keysPressed: 'gege',
+    end: ['one two', 'thre|e', 'four five'],
+  });
+
+  newTest({
+    title: "Can handle 'ge' in multiple lines case2",
+    start: ['one two', 'three', 'four five|'],
+    keysPressed: 'gegegegege',
+    end: ['|one two', 'three', 'four five'],
   });
 });

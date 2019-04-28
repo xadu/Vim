@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
-import { Position, PositionDiff } from './position';
+
 import { IMovement } from './../../actions/motion';
+import { Position, PositionDiff } from './position';
 
 export class Range {
   private _start: Position;
@@ -17,6 +18,10 @@ export class Range {
   constructor(start: Position, stop: Position) {
     this._start = start;
     this._stop = stop;
+  }
+
+  public isValid(textEditor: vscode.TextEditor) {
+    return this._start.isValid(textEditor) && this._stop.isValid(textEditor);
   }
 
   /**

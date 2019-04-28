@@ -1,11 +1,18 @@
 import * as assert from 'assert';
-import { ModeHandler } from '../../src/mode/modeHandler';
-import { setupWorkspace, cleanUpWorkspace, assertEqualLines, assertEqual } from './../testUtils';
+
+import { getAndUpdateModeHandler } from '../../extension';
+import { Globals } from '../../src/globals';
 import { ModeName } from '../../src/mode/mode';
+import { ModeHandler } from '../../src/mode/modeHandler';
 import { TextEditor } from '../../src/textEditor';
 import { getTestingFunctions } from '../testSimplifier';
-import { Configuration } from '../../src/configuration/configuration';
-import { getAndUpdateModeHandler } from '../../extension';
+import {
+  assertEqual,
+  assertEqualLines,
+  cleanUpWorkspace,
+  reloadConfiguration,
+  setupWorkspace,
+} from './../testUtils';
 
 suite('Mode Visual', () => {
   let modeHandler: ModeHandler;
@@ -517,6 +524,15 @@ suite('Mode Visual', () => {
     });
 
     newTest({
+      title:
+        'Count-prefixed vit alternates expanding selection between inner and outer tag brackets',
+      start: ['<div> one <p> t|wo </p> three </div>'],
+      keysPressed: 'v3itd',
+      end: ['<div>|</div>'],
+      endMode: ModeName.Normal,
+    });
+
+    newTest({
       title: 'Can do vat on a matching tag',
       start: ['one <blink>he|llo</blink> two'],
       keysPressed: 'vatd',
@@ -526,9 +542,57 @@ suite('Mode Visual', () => {
   });
 
   newTest({
+    title: 'Can do vat on multiple matching tags',
+    start: ['one <blank>two <blink>he|llo</blink> three</blank> four'],
+    keysPressed: 'vatatd',
+    end: ['one | four'],
+    endMode: ModeName.Normal,
+  });
+
+  newTest({
+    title: 'Can maintain selection on failure with vat on multiple matching tags',
+    start: ['one <blank>two <blink>he|llo</blink> three</blank> four'],
+    keysPressed: 'vatatatatd',
+    end: ['one | four'],
+    endMode: ModeName.Normal,
+  });
+
+  newTest({
+    title: 'Can maintain selection on failure with repeat-prefixed vat on multiple matching tags',
+    start: ['one <blank>two <blink>he|llo</blink> three</blank> four'],
+    keysPressed: 'v4atd',
+    end: ['one | four'],
+    endMode: ModeName.Normal,
+  });
+
+  newTest({
+    title: 'Repeat-prefixed vat does not bleed below',
+    start: ['<p>', '\t<p>', '\t|test', '\t</p>', '</p>', '', 'do not delete'],
+    keysPressed: 'v8atd',
+    end: ['|', '', 'do not delete'],
+    endMode: ModeName.Normal,
+  });
+
+  newTest({
+    title: 'Failed vat does not expand or move selection, remains in visual mode',
+    start: ['one | two'],
+    keysPressed: 'v4atd',
+    end: ['one |two'],
+    endMode: ModeName.Normal,
+  });
+
+  newTest({
     title: 'Can do vi) on a matching parenthesis',
     start: ['test(te|st)'],
     keysPressed: 'vi)d',
+    end: ['test(|)'],
+    endMode: ModeName.Normal,
+  });
+
+  newTest({
+    title: 'Can do vi) on multiple matching parens',
+    start: ['test(te(te|st)st)'],
+    keysPressed: 'vi)i)d',
     end: ['test(|)'],
     endMode: ModeName.Normal,
   });
@@ -542,10 +606,42 @@ suite('Mode Visual', () => {
   });
 
   newTest({
+    title: 'Can do va) on multiple matching parens',
+    start: ['test(te(te|st)st);'],
+    keysPressed: 'va)a)d',
+    end: ['test|;'],
+    endMode: ModeName.Normal,
+  });
+
+  newTest({
+    title: 'Failed va) does not expand or move selection, remains in visual mode',
+    start: ['one | two'],
+    keysPressed: 'v4a)d',
+    end: ['one |two'],
+    endMode: ModeName.Normal,
+  });
+
+  newTest({
+    title: 'Repeat-prefixed va) does not bleed below',
+    start: ['(', '\t(', '\t|', '\t)', ')', '', 'do not delete'],
+    keysPressed: 'v8a)d',
+    end: ['|', '', 'do not delete'],
+    endMode: ModeName.Normal,
+  });
+
+  newTest({
     title: 'Can do va} on a matching bracket as first character',
     start: ['1|{', 'test', '}1'],
     keysPressed: 'va}d',
     end: ['1|1'],
+    endMode: ModeName.Normal,
+  });
+
+  newTest({
+    title: 'Can do va} on multiple matching brackets',
+    start: ['test{te{te|st}st};'],
+    keysPressed: 'va}a}d',
+    end: ['test|;'],
     endMode: ModeName.Normal,
   });
 
@@ -557,6 +653,53 @@ suite('Mode Visual', () => {
     endMode: ModeName.Normal,
   });
 
+  newTest({
+    title: 'Can do vi{ on outer pair of nested braces',
+    start: ['{', '  te|st', '  {', '    test', '  }', '}'],
+    keysPressed: 'vi{d',
+    end: ['{', '|}'],
+    endMode: ModeName.Normal,
+  });
+
+  newTest({
+    title: 'Can do vi{ on braces indented by 1 and preserve indent',
+    start: ['{', '  t|est', ' }'],
+    keysPressed: 'vi{d',
+    end: ['{', '| }'],
+    endMode: ModeName.Normal,
+  });
+
+  newTest({
+    title: 'Can do va] on multiple matching brackets',
+    start: ['test[te[te|st]st];'],
+    keysPressed: 'va]a]d',
+    end: ['test|;'],
+    endMode: ModeName.Normal,
+  });
+
+  newTest({
+    title: 'Can do repeat-prefixed vaf on multiple matching pairs of different types',
+    start: ['test <div><p>[[{{((|))}}]]</p></div> test;'],
+    keysPressed: 'v8afd',
+    end: ['test | test;'],
+    endMode: ModeName.Normal,
+  });
+
+  newTest({
+    title: 'Repeat-prefixed vaf does not bleed below',
+    start: ['<p>', '\t(', '\t|', '\t)', '</p>', '', 'do not delete'],
+    keysPressed: 'v8afd',
+    end: ['|', '', 'do not delete'],
+    endMode: ModeName.Normal,
+  });
+
+  newTest({
+    title: 'vaf only expands to enclosing pairs',
+    start: ['test (f|oo) "hi" test;'],
+    keysPressed: 'vafd',
+    end: ['test | "hi" test;'],
+    endMode: ModeName.Normal,
+  });
   suite('handles replace in visual mode', () => {
     newTest({
       title: 'Can do a single line replace',
@@ -684,15 +827,9 @@ suite('Mode Visual', () => {
   });
 
   suite('visualstar', () => {
-    let originalVisualstarValue = false;
-
-    setup(() => {
-      originalVisualstarValue = Configuration.visualstar;
-      Configuration.visualstar = true;
-    });
-
-    teardown(() => {
-      Configuration.visualstar = originalVisualstarValue;
+    setup(async () => {
+      Globals.mockConfiguration.visualstar = true;
+      await reloadConfiguration();
     });
 
     newTest({
@@ -749,6 +886,19 @@ suite('Mode Visual', () => {
       start: ['foo', 'bar', 'fun', 'b|az'],
       keysPressed: 'v?foo\nx',
       end: ['|z'],
+    });
+
+    test('Selects correct range', async () => {
+      await modeHandler.handleMultipleKeyEvents('ifoo bar fun baz'.split(''));
+      await modeHandler.handleMultipleKeyEvents(['<Esc>', 'g', 'g', 'v', 'w', '/']);
+
+      const selection = TextEditor.getSelection();
+
+      // ensuring selection range starts from the beginning
+      assertEqual(selection.start.character, 0);
+      assertEqual(selection.start.line, 0);
+      assertEqual(selection.end.character, 4);
+      assertEqual(selection.end.line, 0);
     });
   });
 
@@ -816,6 +966,66 @@ suite('Mode Visual', () => {
     });
   });
 
+  suite('Indent Tests using > on visual selections', () => {
+    newTest({
+      title: 'multiline indent top down selection',
+      start: ['111', '2|22', '333', '444', '555'],
+      keysPressed: 'Vjj>',
+      end: ['111', '  |222', '  333', '  444', '555'],
+    });
+
+    newTest({
+      title: 'multiline indent bottom up selection',
+      start: ['111', '222', '333', '4|44', '555'],
+      keysPressed: 'Vkk>',
+      end: ['111', '  |222', '  333', '  444', '555'],
+    });
+
+    newTest({
+      title: 'repeat multiline indent top down selection',
+      start: ['111', '2|22', '333', '444', '555'],
+      keysPressed: 'Vjj>.',
+      end: ['111', '    |222', '    333', '    444', '555'],
+    });
+
+    newTest({
+      title: 'repeat multiline indent bottom up selection',
+      start: ['111', '222', '333', '4|44', '555'],
+      keysPressed: 'Vkk>.',
+      end: ['111', '    |222', '    333', '    444', '555'],
+    });
+  });
+
+  suite('Outdent Tests using < on visual selections', () => {
+    newTest({
+      title: 'multiline outdent top down selection',
+      start: ['    111', '    2|22', '    333', '   444', '    555'],
+      keysPressed: 'Vjj<',
+      end: ['    111', '  |222', '  333', '  444', '    555'],
+    });
+
+    newTest({
+      title: 'multiline outdent bottom up selection',
+      start: ['    111', '    222', '    333', '   4|44', '    555'],
+      keysPressed: 'Vkk<',
+      end: ['    111', '  |222', '  333', '  444', '    555'],
+    });
+
+    newTest({
+      title: 'repeat multiline outdent top down selection',
+      start: ['    111', '    2|22', '    333', '   444', '    555'],
+      keysPressed: 'Vjj<.',
+      end: ['    111', '|222', '333', '444', '    555'],
+    });
+
+    newTest({
+      title: 'repeat multiline outdent bottom up selection',
+      start: ['    111', '    222', '    333', '   4|44', '    555'],
+      keysPressed: 'Vkk<.',
+      end: ['    111', '|222', '333', '444', '    555'],
+    });
+  });
+
   suite('Non-darwin <C-c> tests', () => {
     if (process.platform === 'darwin') {
       return;
@@ -833,6 +1043,353 @@ suite('Mode Visual', () => {
       await modeHandler.handleMultipleKeyEvents(['^', '"', '+', 'P']);
 
       assertEqualLines(['oneone two three']);
+    });
+  });
+
+  suite('vi{ will go to end of second to last line', () => {
+    newTest({
+      title: 'select',
+      start: ['    func() {', '    |    hi;', '        alw;', '    }'],
+      keysPressed: 'vi{yGP',
+      end: ['    func() {', '        hi;', '        alw;', '|        hi;', '        alw;', '    }'],
+    });
+  });
+
+  suite('Transition between visual mode', () => {
+    test('vv will back to normal mode', async () => {
+      await modeHandler.handleMultipleKeyEvents(['v']);
+      assertEqual(modeHandler.currentMode.name, ModeName.Visual);
+      await modeHandler.handleMultipleKeyEvents(['v']);
+      assertEqual(modeHandler.currentMode.name, ModeName.Normal);
+    });
+
+    test('vV will transit to visual line mode', async () => {
+      await modeHandler.handleMultipleKeyEvents(['v']);
+      assertEqual(modeHandler.currentMode.name, ModeName.Visual);
+      await modeHandler.handleMultipleKeyEvents(['V']);
+      assertEqual(modeHandler.currentMode.name, ModeName.VisualLine);
+    });
+
+    test('v<C-v> will transit to visual block mode', async () => {
+      await modeHandler.handleMultipleKeyEvents(['v']);
+      assertEqual(modeHandler.currentMode.name, ModeName.Visual);
+      await modeHandler.handleMultipleKeyEvents(['<C-v>']);
+      assertEqual(modeHandler.currentMode.name, ModeName.VisualBlock);
+    });
+
+    test('Vv will transit to visual (char) mode', async () => {
+      await modeHandler.handleMultipleKeyEvents(['V']);
+      assertEqual(modeHandler.currentMode.name, ModeName.VisualLine);
+      await modeHandler.handleMultipleKeyEvents(['v']);
+      assertEqual(modeHandler.currentMode.name, ModeName.Visual);
+    });
+
+    test('VV will back to normal mode', async () => {
+      await modeHandler.handleMultipleKeyEvents(['V']);
+      assertEqual(modeHandler.currentMode.name, ModeName.VisualLine);
+      await modeHandler.handleMultipleKeyEvents(['V']);
+      assertEqual(modeHandler.currentMode.name, ModeName.Normal);
+    });
+
+    test('V<C-v> will transit to visual block mode', async () => {
+      await modeHandler.handleMultipleKeyEvents(['V']);
+      assertEqual(modeHandler.currentMode.name, ModeName.VisualLine);
+      await modeHandler.handleMultipleKeyEvents(['<C-v>']);
+      assertEqual(modeHandler.currentMode.name, ModeName.VisualBlock);
+    });
+
+    test('<C-v>v will transit to visual (char) mode', async () => {
+      await modeHandler.handleMultipleKeyEvents(['<C-v>']);
+      assertEqual(modeHandler.currentMode.name, ModeName.VisualBlock);
+      await modeHandler.handleMultipleKeyEvents(['v']);
+      assertEqual(modeHandler.currentMode.name, ModeName.Visual);
+    });
+
+    test('<C-v>V will back to visual line mode', async () => {
+      await modeHandler.handleMultipleKeyEvents(['<C-v>']);
+      assertEqual(modeHandler.currentMode.name, ModeName.VisualBlock);
+      await modeHandler.handleMultipleKeyEvents(['V']);
+      assertEqual(modeHandler.currentMode.name, ModeName.VisualLine);
+    });
+
+    test('<C-v><C-v> will back to normal mode', async () => {
+      await modeHandler.handleMultipleKeyEvents(['<C-v>']);
+      assertEqual(modeHandler.currentMode.name, ModeName.VisualBlock);
+      await modeHandler.handleMultipleKeyEvents(['<C-v>']);
+      assertEqual(modeHandler.currentMode.name, ModeName.Normal);
+    });
+  });
+
+  suite('replace text in characterwise visual-mode with characterwise register content', () => {
+    test('gv selects the last pasted text (which is shorter than original)', async () => {
+      await modeHandler.handleMultipleKeyEvents(
+        'ireplace this\nwith me\nor with me longer than the target'.split('')
+      );
+      await modeHandler.handleMultipleKeyEvents(['<Esc>']);
+      await modeHandler.handleMultipleKeyEvents(
+        '2ggv$hy'.split('') // yank the second line
+      );
+      await modeHandler.handleMultipleKeyEvents(
+        'ggv$hp'.split('') // replace the first line
+      );
+      await modeHandler.handleMultipleKeyEvents(['g', 'v']);
+
+      assertEqual(modeHandler.currentMode.name, ModeName.Visual);
+      assertEqualLines(['with me', 'with me', 'or with me longer than the target']);
+
+      const selection = TextEditor.getSelection();
+
+      // ensuring selecting 'with me' at the first line
+      assertEqual(selection.start.character, 0);
+      assertEqual(selection.start.line, 0);
+      assertEqual(selection.end.character, 'with me'.length);
+      assertEqual(selection.end.line, 0);
+    });
+
+    test('gv selects the last pasted text (which is longer than original)', async () => {
+      await modeHandler.handleMultipleKeyEvents(
+        'ireplace this\nwith me\nor with me longer than the target'.split('')
+      );
+      await modeHandler.handleMultipleKeyEvents(['<Esc>']);
+      await modeHandler.handleMultipleKeyEvents(
+        'v0y'.split('') // yank the last line
+      );
+      await modeHandler.handleMultipleKeyEvents(
+        'ggv$hp'.split('') // replace the first line
+      );
+      await modeHandler.handleMultipleKeyEvents(['g', 'v']);
+
+      assertEqual(modeHandler.currentMode.name, ModeName.Visual);
+      assertEqualLines([
+        'or with me longer than the target',
+        'with me',
+        'or with me longer than the target',
+      ]);
+
+      const selection = TextEditor.getSelection();
+
+      // ensuring selecting 'or with me longer than the target' at the first line
+      assertEqual(selection.start.character, 0);
+      assertEqual(selection.start.line, 0);
+      assertEqual(selection.end.character, 'or with me longer than the target'.length);
+      assertEqual(selection.end.line, 0);
+    });
+
+    test('gv selects the last pasted text (multiline)', async () => {
+      await modeHandler.handleMultipleKeyEvents('ireplace this\nfoo\nbar'.split(''));
+      await modeHandler.handleMultipleKeyEvents(['<Esc>']);
+      await modeHandler.handleMultipleKeyEvents(
+        '2ggvjey'.split('') // yank 'foo\nbar'
+      );
+      await modeHandler.handleMultipleKeyEvents(
+        'ggvep'.split('') // replace 'replace'
+      );
+      await modeHandler.handleMultipleKeyEvents(['g', 'v']);
+
+      assertEqual(modeHandler.currentMode.name, ModeName.Visual);
+      assertEqualLines(['foo', 'bar this', 'foo', 'bar']);
+
+      const selection = TextEditor.getSelection();
+
+      // ensuring selecting 'foo\nbar'
+      assertEqual(selection.start.character, 0);
+      assertEqual(selection.start.line, 0);
+      assertEqual(selection.end.character, 3);
+      assertEqual(selection.end.line, 1);
+    });
+  });
+
+  suite('can handle gn', () => {
+    test('gn selects the next match text', async () => {
+      await modeHandler.handleMultipleKeyEvents('ifoo\nhello world\nhello\nhello'.split(''));
+      await modeHandler.handleMultipleKeyEvents(['<Esc>', ...'/hello\n'.split('')]);
+      await modeHandler.handleMultipleKeyEvents('ggv'.split(''));
+      await modeHandler.handleMultipleKeyEvents(['g', 'n']);
+
+      assertEqual(modeHandler.currentMode.name, ModeName.Visual);
+
+      const selection = TextEditor.getSelection();
+
+      assertEqual(selection.start.character, 0);
+      assertEqual(selection.start.line, 0);
+      assertEqual(selection.end.character, 'hello'.length);
+      assertEqual(selection.end.line, 1);
+    });
+
+    test('gn selects the current word at |hello', async () => {
+      await modeHandler.handleMultipleKeyEvents('ifoo\nhello world\nhello\nhello'.split(''));
+      await modeHandler.handleMultipleKeyEvents(['<Esc>', ...'/hello\n'.split('')]);
+      await modeHandler.handleMultipleKeyEvents('2ggv'.split(''));
+      await modeHandler.handleMultipleKeyEvents(['g', 'n']);
+
+      assertEqual(modeHandler.currentMode.name, ModeName.Visual);
+
+      const selection = TextEditor.getSelection();
+
+      assertEqual(selection.start.character, 0);
+      assertEqual(selection.start.line, 1);
+      assertEqual(selection.end.character, 5);
+      assertEqual(selection.end.line, 1);
+    });
+
+    test('gn selects the current word at h|ello', async () => {
+      await modeHandler.handleMultipleKeyEvents('ifoo\nhello world\nhello\nhello'.split(''));
+      await modeHandler.handleMultipleKeyEvents(['<Esc>', ...'/hello\n'.split('')]);
+      await modeHandler.handleMultipleKeyEvents('2gglv'.split(''));
+      await modeHandler.handleMultipleKeyEvents(['g', 'n']);
+
+      assertEqual(modeHandler.currentMode.name, ModeName.Visual);
+
+      const selection = TextEditor.getSelection();
+
+      assertEqual(selection.start.character, 1);
+      assertEqual(selection.start.line, 1);
+      assertEqual(selection.end.character, 5);
+      assertEqual(selection.end.line, 1);
+    });
+
+    test('gn selects the current word at hel|lo', async () => {
+      await modeHandler.handleMultipleKeyEvents('ifoo\nhello world\nhello\nhello'.split(''));
+      await modeHandler.handleMultipleKeyEvents(['<Esc>', ...'/hello\n'.split('')]);
+      await modeHandler.handleMultipleKeyEvents('2ggehv'.split(''));
+      await modeHandler.handleMultipleKeyEvents(['g', 'n']);
+
+      assertEqual(modeHandler.currentMode.name, ModeName.Visual);
+
+      const selection = TextEditor.getSelection();
+
+      assertEqual(selection.start.character, 3);
+      assertEqual(selection.start.line, 1);
+      assertEqual(selection.end.character, 5);
+      assertEqual(selection.end.line, 1);
+    });
+
+    test('gn selects the next word at hell|o', async () => {
+      await modeHandler.handleMultipleKeyEvents('ifoo\nhello world\nhello\nhello'.split(''));
+      await modeHandler.handleMultipleKeyEvents(['<Esc>', ...'/hello\n'.split('')]);
+      await modeHandler.handleMultipleKeyEvents('2ggev'.split(''));
+      await modeHandler.handleMultipleKeyEvents(['g', 'n']);
+
+      assertEqual(modeHandler.currentMode.name, ModeName.Visual);
+
+      const selection = TextEditor.getSelection();
+
+      assertEqual(selection.start.character, 4);
+      assertEqual(selection.start.line, 1);
+      assertEqual(selection.end.character, 5);
+      assertEqual(selection.end.line, 2);
+    });
+
+    test('gn selects the next word at hello|', async () => {
+      await modeHandler.handleMultipleKeyEvents('ifoo\nhello world\nhello\nhello'.split(''));
+      await modeHandler.handleMultipleKeyEvents(['<Esc>', ...'/hello\n'.split('')]);
+      await modeHandler.handleMultipleKeyEvents('2ggelv'.split(''));
+      await modeHandler.handleMultipleKeyEvents(['g', 'n']);
+
+      assertEqual(modeHandler.currentMode.name, ModeName.Visual);
+
+      const selection = TextEditor.getSelection();
+
+      assertEqual(selection.start.character, 5);
+      assertEqual(selection.start.line, 1);
+      assertEqual(selection.end.character, 5);
+      assertEqual(selection.end.line, 2);
+    });
+  });
+
+  suite('can prepend text with I', () => {
+    newTest({
+      title: 'multiline insert from bottom up selection',
+      start: ['111', '222', '333', '4|44', '555'],
+      keysPressed: 'vkkI_',
+      end: ['111', '2_|22', '_333', '_444', '555'],
+    });
+
+    newTest({
+      title: 'multiline insert from top down selection',
+      start: ['111', '2|22', '333', '444', '555'],
+      keysPressed: 'vjjI_',
+      end: ['111', '2_|22', '_333', '_444', '555'],
+    });
+
+    newTest({
+      title: 'skips blank lines',
+      start: ['111', '2|22', ' ', '444', '555'],
+      keysPressed: 'vjjI_',
+      end: ['111', '2_|22', ' ', '_444', '555'],
+    });
+  });
+
+  suite('can append text with A', () => {
+    newTest({
+      title: 'multiline append from bottom up selection',
+      start: ['111', '222', '333', '4|44', '555'],
+      keysPressed: 'vkkA_',
+      end: ['111', '222_|', '333_', '44_4', '555'],
+    });
+
+    newTest({
+      title: 'multiline append from top down selection',
+      start: ['111', '2|22', '333', '444', '555'],
+      keysPressed: 'vjjA_',
+      end: ['111', '222_|', '333_', '44_4', '555'],
+    });
+
+    newTest({
+      title: 'skips blank lines',
+      start: ['111', '2|22', ' ', '444', '555'],
+      keysPressed: 'vjjA_',
+      end: ['111', '222_|', ' ', '44_4', '555'],
+    });
+  });
+
+  suite('Can handle u/gu, U/gU', () => {
+    newTest({
+      title: 'U/gU on single character',
+      start: ['|one two three'],
+      keysPressed: 'vUwwvgU',
+      end: ['One two |Three'],
+      endMode: ModeName.Normal,
+    });
+
+    newTest({
+      title: 'U/gU across a selection',
+      start: ['|one two three'],
+      keysPressed: 'vllllUwwvlgU',
+      end: ['ONE Two |THree'],
+      endMode: ModeName.Normal,
+    });
+
+    newTest({
+      title: 'U/gU across a selection (reverse)',
+      start: ['|one two three'],
+      keysPressed: 'wvhhUwwvhhgU',
+      end: ['onE Tw|O Three'],
+      endMode: ModeName.Normal,
+    });
+
+    newTest({
+      title: 'u/gu on single character',
+      start: ['|ONE TWO THREE'],
+      keysPressed: 'vuwwvgu',
+      end: ['oNE TWO |tHREE'],
+      endMode: ModeName.Normal,
+    });
+
+    newTest({
+      title: 'u/gu across a selection',
+      start: ['|ONE TWO THREE'],
+      keysPressed: 'vlllluwwvlgu',
+      end: ['one tWO |thREE'],
+      endMode: ModeName.Normal,
+    });
+
+    newTest({
+      title: 'u/gu across a selection (reverse)',
+      start: ['|ONE TWO THREE'],
+      keysPressed: 'wvhhuwwvhhgu',
+      end: ['ONe tW|o tHREE'],
+      endMode: ModeName.Normal,
     });
   });
 });

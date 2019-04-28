@@ -1,10 +1,10 @@
 import * as _ from 'lodash';
 import * as vscode from 'vscode';
+
+import { VimState } from '../../state/vimState';
+import { configuration } from './../../configuration/configuration';
+import { VisualBlockMode } from './../../mode/modes';
 import { TextEditor } from './../../textEditor';
-import { VimState } from './../../mode/modeHandler';
-import { VisualBlockMode } from './../../mode/modeVisualBlock';
-import { Configuration } from './../../configuration/configuration';
-import { betterEscapeRegex } from './../../util';
 
 /**
  * Represents a difference between two positions. Add it to a position
@@ -95,22 +95,24 @@ export class PositionDiff {
 }
 
 export class Position extends vscode.Position {
-  private static NonWordCharacters = Configuration.iskeyword!;
+  private static NonWordCharacters = configuration.iskeyword!;
   private static NonBigWordCharacters = '';
   private static NonFileCharacters = '"\'`;<>{}[]()';
 
-  private _nonWordCharRegex: RegExp;
-  private _nonBigWordCharRegex: RegExp;
-  private _sentenceEndRegex: RegExp;
-  private _nonFileNameRegex: RegExp;
+  private static _nonWordCharRegex: RegExp = Position.makeUnicodeWordRegex(
+    Position.NonWordCharacters
+  );
+  private static _nonBigWordCharRegex: RegExp = Position.makeWordRegex(
+    Position.NonBigWordCharacters
+  );
+  private static _nonCamelCaseWordCharRegex: RegExp = Position.makeCamelCaseWordRegex(
+    Position.NonWordCharacters
+  );
+  private static _sentenceEndRegex: RegExp = /[\.!\?]{1}([ \n\t]+|$)/g;
+  private static _nonFileNameRegex: RegExp = Position.makeWordRegex(Position.NonFileCharacters);
 
   constructor(line: number, character: number) {
     super(line, character);
-
-    this._nonWordCharRegex = this.makeWordRegex(Position.NonWordCharacters);
-    this._nonBigWordCharRegex = this.makeWordRegex(Position.NonBigWordCharacters);
-    this._sentenceEndRegex = /[\.!\?]{1}([ \n\t]+|$)/g;
-    this._nonFileNameRegex = this.makeWordRegex(Position.NonFileCharacters);
   }
 
   public toString(): string {
@@ -144,6 +146,17 @@ export class Position extends vscode.Position {
     }
 
     return false;
+  }
+
+  /**
+   * Returns which of the 2 provided Positions comes later in the document.
+   */
+  public static LaterOf(p1: Position, p2: Position): Position {
+    if (Position.EarlierOf(p1, p2) === p1) {
+      return p2;
+    }
+
+    return p1;
   }
 
   /**
@@ -254,7 +267,7 @@ export class Position extends vscode.Position {
   ): Iterable<{ line: string; start: Position; end: Position }> {
     const { reverse } = options;
     const start = vimState.cursorStartPosition;
-    const stop = vimState.cursorPosition;
+    const stop = vimState.cursorStopPosition;
 
     const topLeft = VisualBlockMode.getTopLeftPosition(start, stop);
     const bottomRight = VisualBlockMode.getBottomRightPosition(start, stop);
@@ -279,7 +292,7 @@ export class Position extends vscode.Position {
       yield {
         line: line.substring(topLeft.character, endCharacter),
         start: new Position(lineIndex, topLeft.character),
-        end: new Position(lineIndex, bottomRight.character + 1),
+        end: new Position(lineIndex, endCharacter),
       };
     }
   }
@@ -304,17 +317,6 @@ export class Position extends vscode.Position {
       start = start.getWordRight();
       wordEnd = start.getCurrentWordEnd(true);
     } while (true);
-  }
-
-  /**
-   * Returns which of the 2 provided Positions comes later in the document.
-   */
-  public static LaterOf(p1: Position, p2: Position): Position {
-    if (Position.EarlierOf(p1, p2) === p1) {
-      return p2;
-    }
-
-    return p1;
   }
 
   /**
@@ -352,9 +354,12 @@ export class Position extends vscode.Position {
     return new Position(resultLine, resultChar);
   }
 
-  public setLocation(line: number, character: number): Position {
-    let position = new Position(line, character);
-    return position;
+  public withLine(line: number): Position {
+    return new Position(line, this.character);
+  }
+
+  public withColumn(column: number): Position {
+    return new Position(this.line, column);
   }
 
   public getLeftTabStop(): Position {
@@ -363,7 +368,7 @@ export class Position extends vscode.Position {
       let tabSize = vscode.window.activeTextEditor!.options.tabSize as number;
 
       if (indentationWidth % tabSize > 0) {
-        return new Position(this.line, Math.max(0, this.character - indentationWidth % tabSize));
+        return new Position(this.line, Math.max(0, this.character - (indentationWidth % tabSize)));
       } else {
         return new Position(this.line, Math.max(0, this.character - tabSize));
       }
@@ -373,12 +378,13 @@ export class Position extends vscode.Position {
   }
 
   /**
-   * Gets the position one to the left of this position. Does not go up line
+   * Gets the position one or more to the left of this position. Does not go up line
    * breaks.
    */
-  public getLeft(): Position {
-    if (!this.isLineBeginning()) {
-      return new Position(this.line, this.character - 1);
+  public getLeft(count: number = 1): Position {
+    let newCharacter = Math.max(this.character - count, 0);
+    if (newCharacter !== this.character) {
+      return new Position(this.line, newCharacter);
     }
 
     return this;
@@ -403,17 +409,23 @@ export class Position extends vscode.Position {
     if (includeEol) {
       return this.getUp(0).getLineEnd();
     } else {
-      return this.getUp(0).getLineEnd().getLeft();
+      return this.getUp(0)
+        .getLineEnd()
+        .getLeft();
     }
   }
 
-  public getRightThroughLineBreaks(): Position {
+  public getRightThroughLineBreaks(includeEol = false): Position {
     if (this.isAtDocumentEnd()) {
       // TODO(bell)
       return this;
     }
 
-    if (this.getRight().isLineEnd()) {
+    if (this.isLineEnd()) {
+      return this.getDown(0);
+    }
+
+    if (!includeEol && this.getRight().isLineEnd()) {
       return this.getDown(0);
     }
 
@@ -499,52 +511,71 @@ export class Position extends vscode.Position {
    * Inclusive is true if we consider the current position a valid result, false otherwise.
    */
   public getWordLeft(inclusive: boolean = false): Position {
-    return this.getWordLeftWithRegex(this._nonWordCharRegex, inclusive);
+    return this.getWordLeftWithRegex(Position._nonWordCharRegex, inclusive);
   }
 
   public getBigWordLeft(inclusive: boolean = false): Position {
-    return this.getWordLeftWithRegex(this._nonBigWordCharRegex, inclusive);
+    return this.getWordLeftWithRegex(Position._nonBigWordCharRegex, inclusive);
+  }
+
+  public getCamelCaseWordLeft(inclusive: boolean = false): Position {
+    return this.getWordLeftWithRegex(Position._nonCamelCaseWordCharRegex, inclusive);
   }
 
   public getFilePathLeft(inclusive: boolean = false): Position {
-    return this.getWordLeftWithRegex(this._nonFileNameRegex, inclusive);
+    return this.getWordLeftWithRegex(Position._nonFileNameRegex, inclusive);
   }
 
   /**
    * Inclusive is true if we consider the current position a valid result, false otherwise.
    */
   public getWordRight(inclusive: boolean = false): Position {
-    return this.getWordRightWithRegex(this._nonWordCharRegex, inclusive);
+    return this.getWordRightWithRegex(Position._nonWordCharRegex, inclusive);
   }
 
   public getBigWordRight(inclusive: boolean = false): Position {
-    return this.getWordRightWithRegex(this._nonBigWordCharRegex);
+    return this.getWordRightWithRegex(Position._nonBigWordCharRegex);
+  }
+
+  public getCamelCaseWordRight(inclusive: boolean = false): Position {
+    return this.getWordRightWithRegex(Position._nonCamelCaseWordCharRegex);
   }
 
   public getFilePathRight(inclusive: boolean = false): Position {
-    return this.getWordRightWithRegex(this._nonFileNameRegex, inclusive);
+    return this.getWordRightWithRegex(Position._nonFileNameRegex, inclusive);
   }
 
   public getLastWordEnd(): Position {
-    return this.getLastWordEndWithRegex(this._nonWordCharRegex);
+    return this.getLastWordEndWithRegex(Position._nonWordCharRegex);
   }
 
   public getLastBigWordEnd(): Position {
-    return this.getLastWordEndWithRegex(this._nonBigWordCharRegex);
+    return this.getLastWordEndWithRegex(Position._nonBigWordCharRegex);
+  }
+
+  public getLastCamelCaseWordEnd(): Position {
+    return this.getLastWordEndWithRegex(Position._nonCamelCaseWordCharRegex);
   }
 
   /**
    * Inclusive is true if we consider the current position a valid result, false otherwise.
    */
   public getCurrentWordEnd(inclusive: boolean = false): Position {
-    return this.getCurrentWordEndWithRegex(this._nonWordCharRegex, inclusive);
+    return this.getCurrentWordEndWithRegex(Position._nonWordCharRegex, inclusive);
   }
 
   /**
    * Inclusive is true if we consider the current position a valid result, false otherwise.
    */
   public getCurrentBigWordEnd(inclusive: boolean = false): Position {
-    return this.getCurrentWordEndWithRegex(this._nonBigWordCharRegex, inclusive);
+    return this.getCurrentWordEndWithRegex(Position._nonBigWordCharRegex, inclusive);
+  }
+
+  /**
+   * Inclusive is true if we consider the current position a valid result, false otherwise.
+   */
+  public getCurrentCamelCaseWordEnd(inclusive: boolean = false): Position {
+    return this.getCurrentWordEndWithRegex(Position._nonCamelCaseWordCharRegex, inclusive);
   }
 
   /**
@@ -584,16 +615,16 @@ export class Position extends vscode.Position {
   /**
    * Get the end of the current paragraph.
    */
-  public getCurrentParagraphEnd(): Position {
+  public getCurrentParagraphEnd(trimWhite: boolean = false): Position {
     let pos: Position = this;
 
     // If we're not in a paragraph yet, go down until we are.
-    while (TextEditor.getLineAt(pos).text === '' && !TextEditor.isLastLine(pos)) {
+    while (pos.isLineBlank(trimWhite) && !TextEditor.isLastLine(pos)) {
       pos = pos.getDown(0);
     }
 
     // Go until we're outside of the paragraph, or at the end of the document.
-    while (TextEditor.getLineAt(pos).text !== '' && pos.line < TextEditor.getLineCount() - 1) {
+    while (!pos.isLineBlank(trimWhite) && pos.line < TextEditor.getLineCount() - 1) {
       pos = pos.getDown(0);
     }
 
@@ -603,32 +634,41 @@ export class Position extends vscode.Position {
   /**
    * Get the beginning of the current paragraph.
    */
-  public getCurrentParagraphBeginning(): Position {
+  public getCurrentParagraphBeginning(trimWhite: boolean = false): Position {
     let pos: Position = this;
 
     // If we're not in a paragraph yet, go up until we are.
-    while (TextEditor.getLineAt(pos).text === '' && !TextEditor.isFirstLine(pos)) {
+    while (pos.isLineBlank(trimWhite) && !TextEditor.isFirstLine(pos)) {
       pos = pos.getUp(0);
     }
 
     // Go until we're outside of the paragraph, or at the beginning of the document.
-    while (pos.line > 0 && TextEditor.getLineAt(pos).text !== '') {
+    while (pos.line > 0 && !pos.isLineBlank(trimWhite)) {
       pos = pos.getUp(0);
     }
 
     return pos.getLineBegin();
   }
 
+  public isLineBlank(trimWhite: boolean = false): boolean {
+    let text = TextEditor.getLineAt(this).text;
+    return (trimWhite ? text.trim() : text) === '';
+  }
+
+  public isLineWhite(): boolean {
+    return this.isLineBlank(true);
+  }
+
   public getSentenceBegin(args: { forward: boolean }): Position {
     if (args.forward) {
-      return this.getNextSentenceBeginWithRegex(this._sentenceEndRegex, false);
+      return this.getNextSentenceBeginWithRegex(Position._sentenceEndRegex, false);
     } else {
-      return this.getPreviousSentenceBeginWithRegex(this._sentenceEndRegex, false);
+      return this.getPreviousSentenceBeginWithRegex(Position._sentenceEndRegex);
     }
   }
 
   public getCurrentSentenceEnd(): Position {
-    return this.getCurrentSentenceEndWithRegex(this._sentenceEndRegex, false);
+    return this.getCurrentSentenceEndWithRegex(Position._sentenceEndRegex, false);
   }
 
   /**
@@ -644,7 +684,7 @@ export class Position extends vscode.Position {
    * is disabled.
    */
   public getLineBeginRespectingIndent(): Position {
-    if (!Configuration.autoindent) {
+    if (!configuration.autoindent) {
       return this.getLineBegin();
     }
     return this.getFirstLineNonBlankChar();
@@ -718,32 +758,13 @@ export class Position extends vscode.Position {
     );
   }
 
-  public getDocumentEnd(): Position {
-    let lineCount = TextEditor.getLineCount();
+  public getDocumentEnd(textEditor?: vscode.TextEditor): Position {
+    textEditor = textEditor || vscode.window.activeTextEditor;
+    let lineCount = TextEditor.getLineCount(textEditor);
     let line = lineCount > 0 ? lineCount - 1 : 0;
     let char = Position.getLineLength(line);
 
     return new Position(line, char);
-  }
-
-  public isValid(): boolean {
-    try {
-      // line
-      let lineCount = TextEditor.getLineCount() || 1;
-      if (this.line >= lineCount) {
-        return false;
-      }
-
-      // char
-      let charCount = Position.getLineLength(this.line);
-      if (this.character > charCount + 1) {
-        return false;
-      }
-    } catch (e) {
-      return false;
-    }
-
-    return true;
   }
 
   /**
@@ -762,6 +783,10 @@ export class Position extends vscode.Position {
 
   public isFirstWordOfLine(): boolean {
     return Position.getFirstNonBlankCharAtLine(this.line) === this.character;
+  }
+
+  public isAtDocumentBegin(): boolean {
+    return this.line === 0 && this.isLineBeginning();
   }
 
   public isAtDocumentEnd(): boolean {
@@ -795,8 +820,28 @@ export class Position extends vscode.Position {
     return TextEditor.readLineAt(line).length;
   }
 
-  private makeWordRegex(characterSet: string): RegExp {
-    let escaped = characterSet && betterEscapeRegex(characterSet);
+  public isValid(textEditor?: vscode.TextEditor): boolean {
+    try {
+      // line
+      let lineCount = TextEditor.getLineCount(textEditor) || 1;
+      if (this.line >= lineCount) {
+        return false;
+      }
+
+      // char
+      let charCount = Position.getLineLength(this.line);
+      if (this.character > charCount + 1) {
+        return false;
+      }
+    } catch (e) {
+      return false;
+    }
+
+    return true;
+  }
+
+  private static makeWordRegex(characterSet: string): RegExp {
+    let escaped = characterSet && _.escapeRegExp(characterSet).replace(/-/g, '\\-');
     let segments: string[] = [];
 
     segments.push(`([^\\s${escaped}]+)`);
@@ -805,6 +850,168 @@ export class Position extends vscode.Position {
     let result = new RegExp(segments.join('|'), 'g');
 
     return result;
+  }
+
+  private static makeCamelCaseWordRegex(characterSet: string): RegExp {
+    const escaped = characterSet && _.escapeRegExp(characterSet).replace(/-/g, '\\-');
+    const segments: string[] = [];
+
+    // old versions of VSCode before 1.31 will crash when trying to parse a regex with a lookbehind
+    let supportsLookbehind = true;
+    try {
+      // tslint:disable-next-line
+      new RegExp('(<=x)');
+    } catch {
+      supportsLookbehind = false;
+    }
+
+    // prettier-ignore
+    const firstSegment =
+      '(' +                                                // OPEN: group for matching camel case words
+      `[^\\s${escaped}]` +                                 //   words can start with any word character
+      '(?:' +                                              //   OPEN: group for characters after initial char
+      `(?:${supportsLookbehind ? '(?<=[A-Z_])' : ''}` +    //     If first char was a capital
+      `[A-Z](?=[\\sA-Z0-9${escaped}_]))+` +                //       the word can continue with all caps
+      '|' +                                                //     OR
+      `(?:${supportsLookbehind ? '(?<=[0-9_])' : ''}`   +  //     If first char was a digit
+      `[0-9](?=[\\sA-Z0-9${escaped}_]))+` +                //       the word can continue with all digits
+      '|' +                                                //     OR
+      `(?:${supportsLookbehind ? '(?<=[_])' : ''}` +       //     If first char was an underscore
+      `[_](?=[\\s${escaped}_]))+`  +                       //       the word can continue with all underscores
+      '|' +                                                //     OR
+      `[^\\sA-Z0-9${escaped}_]*` +                         //     Continue with regular characters
+      ')' +                                                //   END: group for characters after initial char
+      ')' +                                                // END: group for matching camel case words
+      '';
+
+    segments.push(firstSegment);
+    segments.push(`[${escaped}]+`);
+    segments.push(`$^`);
+
+    // it can be difficult to grok the behavior of the above regex
+    // feel free to check out https://regex101.com/r/mkVeiH/1 as a live example
+    const result = new RegExp(segments.join('|'), 'g');
+
+    return result;
+  }
+
+  private static makeUnicodeWordRegex(keywordChars: string): RegExp {
+    // Distinct categories of characters
+    enum CharKind {
+      Punctuation,
+      Superscript,
+      Subscript,
+      Braille,
+      Ideograph,
+      Hiragana,
+      Katakana,
+      Hangul,
+    }
+
+    // List of printable characters (code point intervals) and their character kinds.
+    // Latin alphabets (e.g., ASCII alphabets and numbers,  Latin-1 Supplement, European Latin) are excluded.
+    // Imported from utf_class_buf in src/mbyte.c of Vim.
+    const symbolTable: [[number, number], CharKind][] = [
+      [[0x00a1, 0x00bf], CharKind.Punctuation], // Latin-1 punctuation
+      [[0x037e, 0x037e], CharKind.Punctuation], // Greek question mark
+      [[0x0387, 0x0387], CharKind.Punctuation], // Greek ano teleia
+      [[0x055a, 0x055f], CharKind.Punctuation], // Armenian punctuation
+      [[0x0589, 0x0589], CharKind.Punctuation], // Armenian full stop
+      [[0x05be, 0x05be], CharKind.Punctuation],
+      [[0x05c0, 0x05c0], CharKind.Punctuation],
+      [[0x05c3, 0x05c3], CharKind.Punctuation],
+      [[0x05f3, 0x05f4], CharKind.Punctuation],
+      [[0x060c, 0x060c], CharKind.Punctuation],
+      [[0x061b, 0x061b], CharKind.Punctuation],
+      [[0x061f, 0x061f], CharKind.Punctuation],
+      [[0x066a, 0x066d], CharKind.Punctuation],
+      [[0x06d4, 0x06d4], CharKind.Punctuation],
+      [[0x0700, 0x070d], CharKind.Punctuation], // Syriac punctuation
+      [[0x0964, 0x0965], CharKind.Punctuation],
+      [[0x0970, 0x0970], CharKind.Punctuation],
+      [[0x0df4, 0x0df4], CharKind.Punctuation],
+      [[0x0e4f, 0x0e4f], CharKind.Punctuation],
+      [[0x0e5a, 0x0e5b], CharKind.Punctuation],
+      [[0x0f04, 0x0f12], CharKind.Punctuation],
+      [[0x0f3a, 0x0f3d], CharKind.Punctuation],
+      [[0x0f85, 0x0f85], CharKind.Punctuation],
+      [[0x104a, 0x104f], CharKind.Punctuation], // Myanmar punctuation
+      [[0x10fb, 0x10fb], CharKind.Punctuation], // Georgian punctuation
+      [[0x1361, 0x1368], CharKind.Punctuation], // Ethiopic punctuation
+      [[0x166d, 0x166e], CharKind.Punctuation], // Canadian Syl. punctuation
+      [[0x169b, 0x169c], CharKind.Punctuation],
+      [[0x16eb, 0x16ed], CharKind.Punctuation],
+      [[0x1735, 0x1736], CharKind.Punctuation],
+      [[0x17d4, 0x17dc], CharKind.Punctuation], // Khmer punctuation
+      [[0x1800, 0x180a], CharKind.Punctuation], // Mongolian punctuation
+      [[0x200c, 0x2027], CharKind.Punctuation], // punctuation and symbols
+      [[0x202a, 0x202e], CharKind.Punctuation], // punctuation and symbols
+      [[0x2030, 0x205e], CharKind.Punctuation], // punctuation and symbols
+      [[0x2060, 0x27ff], CharKind.Punctuation], // punctuation and symbols
+      [[0x2070, 0x207f], CharKind.Superscript], // superscript
+      [[0x2080, 0x2094], CharKind.Subscript], // subscript
+      [[0x20a0, 0x27ff], CharKind.Punctuation], // all kinds of symbols
+      [[0x2800, 0x28ff], CharKind.Braille], // braille
+      [[0x2900, 0x2998], CharKind.Punctuation], // arrows, brackets, etc.
+      [[0x29d8, 0x29db], CharKind.Punctuation],
+      [[0x29fc, 0x29fd], CharKind.Punctuation],
+      [[0x2e00, 0x2e7f], CharKind.Punctuation], // supplemental punctuation
+      [[0x3001, 0x3020], CharKind.Punctuation], // ideographic punctuation
+      [[0x3030, 0x3030], CharKind.Punctuation],
+      [[0x303d, 0x303d], CharKind.Punctuation],
+      [[0x3040, 0x309f], CharKind.Hiragana], // Hiragana
+      [[0x30a0, 0x30ff], CharKind.Katakana], // Katakana
+      [[0x3300, 0x9fff], CharKind.Ideograph], // CJK Ideographs
+      [[0xac00, 0xd7a3], CharKind.Hangul], // Hangul Syllables
+      [[0xf900, 0xfaff], CharKind.Ideograph], // CJK Ideographs
+      [[0xfd3e, 0xfd3f], CharKind.Punctuation],
+      [[0xfe30, 0xfe6b], CharKind.Punctuation], // punctuation forms
+      [[0xff00, 0xff0f], CharKind.Punctuation], // half/fullwidth ASCII
+      [[0xff1a, 0xff20], CharKind.Punctuation], // half/fullwidth ASCII
+      [[0xff3b, 0xff40], CharKind.Punctuation], // half/fullwidth ASCII
+      [[0xff5b, 0xff65], CharKind.Punctuation], // half/fullwidth ASCII
+      [[0x20000, 0x2a6df], CharKind.Ideograph], // CJK Ideographs
+      [[0x2a700, 0x2b73f], CharKind.Ideograph], // CJK Ideographs
+      [[0x2b740, 0x2b81f], CharKind.Ideograph], // CJK Ideographs
+      [[0x2f800, 0x2fa1f], CharKind.Ideograph], // CJK Ideographs
+    ];
+
+    const codePointRangePatterns: string[][] = [];
+    for (let kind in CharKind) {
+      if (!isNaN(Number(kind))) {
+        codePointRangePatterns[kind] = [];
+      }
+    }
+
+    for (let [[first, last], kind] of symbolTable) {
+      if (first === last) {
+        // '\u{hhhh}'
+        codePointRangePatterns[kind].push(`\\u{${first.toString(16)}}`);
+      } else {
+        // '\u{hhhh}-\u{hhhh}'
+        codePointRangePatterns[kind].push(`\\u{${first.toString(16)}}-\\u{${last.toString(16)}}`);
+      }
+    }
+
+    // Symbols in vim.iskeyword or editor.wordSeparators
+    // are treated as CharKind.Punctuation
+    const escapedKeywordChars = _.escapeRegExp(keywordChars).replace(/-/g, '\\-');
+    codePointRangePatterns[Number(CharKind.Punctuation)].push(escapedKeywordChars);
+
+    const codePointRanges = codePointRangePatterns.map(patterns => patterns.join(''));
+    const symbolSegments = codePointRanges.map(range => `([${range}]+)`);
+
+    // wordSegment matches word characters.
+    // A word character is a symbol which is neither
+    // - space
+    // - a symbol listed in the table
+    // - a keyword (vim.iskeyword)
+    const wordSegment = `([^\\s${codePointRanges.join('')}]+)`;
+
+    // https://regex101.com/r/X1agK6/2
+    const segments = symbolSegments.concat(wordSegment, '$^');
+    const regexp = new RegExp(segments.join('|'), 'ug');
+    return regexp;
   }
 
   private getAllPositions(line: string, regex: RegExp): number[] {
@@ -896,17 +1103,26 @@ export class Position extends vscode.Position {
   }
 
   private getLastWordEndWithRegex(regex: RegExp): Position {
-    for (let currentLine = this.line; currentLine < TextEditor.getLineCount(); currentLine++) {
+    for (let currentLine = this.line; currentLine > -1; currentLine--) {
       let positions = this.getAllEndPositions(
         TextEditor.getLineAt(new vscode.Position(currentLine, 0)).text,
         regex
       );
-      let index = _.findIndex(positions, i => i >= this.character || currentLine !== this.line);
+      // if one line is empty, use the 0 position as the default value
+      if (positions.length === 0) {
+        positions.push(0);
+      }
+      // reverse the list to find the biggest element smaller than this.character
+      positions = positions.reverse();
+      let index = _.findIndex(positions, i => i < this.character || currentLine !== this.line);
       let newCharacter = 0;
       if (index === -1) {
+        if (currentLine > -1) {
+          continue;
+        }
         newCharacter = positions[positions.length - 1];
-      } else if (index > 0) {
-        newCharacter = positions[index - 1];
+      } else {
+        newCharacter = positions[index];
       }
 
       if (newCharacter !== undefined) {
@@ -914,7 +1130,7 @@ export class Position extends vscode.Position {
       }
     }
 
-    return new Position(TextEditor.getLineCount() - 1, 0).getLineEnd();
+    return new Position(0, 0).getLineBegin();
   }
 
   /**
@@ -942,25 +1158,23 @@ export class Position extends vscode.Position {
     return new Position(TextEditor.getLineCount() - 1, 0).getLineEnd();
   }
 
-  private getPreviousSentenceBeginWithRegex(regex: RegExp, inclusive: boolean): Position {
+  private getPreviousSentenceBeginWithRegex(regex: RegExp): Position {
     let paragraphBegin = this.getCurrentParagraphBeginning();
     for (let currentLine = this.line; currentLine >= paragraphBegin.line; currentLine--) {
       let endPositions = this.getAllEndPositions(
         TextEditor.getLineAt(new vscode.Position(currentLine, 0)).text,
         regex
       );
-      let newCharacter = _.find(
-        endPositions.reverse(),
-        index =>
-          (index < this.character &&
-            !inclusive &&
-            new Position(currentLine, index).getRightThroughLineBreaks().compareTo(this)) ||
-          (index <= this.character && inclusive) ||
-          currentLine !== this.line
-      );
+      let newCharacter = _.find(endPositions.reverse(), index => {
+        const newPositionBeforeThis = new Position(currentLine, index)
+          .getRightThroughLineBreaks()
+          .compareTo(this);
+
+        return newPositionBeforeThis && (index < this.character || currentLine < this.line);
+      });
 
       if (newCharacter !== undefined) {
-        return new Position(currentLine, newCharacter).getRightThroughLineBreaks();
+        return new Position(currentLine, <number>newCharacter).getRightThroughLineBreaks();
       }
     }
 

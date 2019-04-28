@@ -1,7 +1,8 @@
-import * as node from '../node';
-import { readFile } from 'fs';
 import { exec } from 'child_process';
+import { readFile } from 'fs';
+
 import { TextEditor } from '../../textEditor';
+import * as node from '../node';
 
 export interface IReadCommandArguments extends node.ICommandArgs {
   file?: string;
@@ -36,9 +37,9 @@ export class ReadCommand extends node.CommandBase {
 
   async getTextToInsert(): Promise<string> {
     if (this.arguments.file && this.arguments.file.length > 0) {
-      return await this.getTextToInsertFromFile();
+      return this.getTextToInsertFromFile();
     } else if (this.arguments.cmd && this.arguments.cmd.length > 0) {
-      return await this.getTextToInsertFromCmd();
+      return this.getTextToInsertFromCmd();
     } else {
       throw Error('Invalid arguments');
     }

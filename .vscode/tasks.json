@@ -5,28 +5,13 @@
 // ${fileDirname}: the current opened file's dirname
 // ${fileExtname}: the current opened file's extension
 // ${cwd}: the current working directory of the spawned process
-
 {
-  "version": "0.1.0",
-  "command": "gulp",
-  "isShellCommand": true,
-  "suppressTaskName": true,
+  "version": "2.0.0",
   "tasks": [
     {
-      "taskName": "build",
-      "args": [],
-      "isBuildCommand": true,
-      "isWatching": false,
-      "problemMatcher": "$tsc-watch"
-    },
-
-    {
-      "taskName": "yolo",
-      "args": ["nothing"],
-      "isBuildCommand": true,
-      "isWatching": false,
+      "type": "gulp",
+      "task": "default",
       "problemMatcher": "$tsc-watch"
     }
-
   ]
 }

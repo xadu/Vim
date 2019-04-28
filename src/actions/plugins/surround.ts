@@ -1,34 +1,34 @@
-import { ModeName } from './../../mode/mode';
+import { VimState } from '../../state/vimState';
+import { PairMatcher } from './../../common/matching/matcher';
 import { Position } from './../../common/motion/position';
 import { Range } from './../../common/motion/range';
+import { configuration } from './../../configuration/configuration';
+import { ModeName } from './../../mode/mode';
 import { TextEditor } from './../../textEditor';
-import { VimState } from './../../mode/modeHandler';
-import { PairMatcher } from './../../common/matching/matcher';
-import { Configuration } from './../../configuration/configuration';
 import { RegisterAction } from './../base';
-import { ChangeOperator, DeleteOperator, YankOperator } from './../operator';
 import { BaseCommand } from './../commands/actions';
 import { BaseMovement } from './../motion';
 import {
   IMovement,
-  MoveQuoteMatch,
-  MoveASingleQuotes,
-  MoveADoubleQuotes,
   MoveABacktick,
-  MoveInsideCharacter,
-  MoveACurlyBrace,
-  MoveInsideTag,
-  MoveAParentheses,
-  MoveASquareBracket,
   MoveACaret,
+  MoveACurlyBrace,
+  MoveADoubleQuotes,
+  MoveAParentheses,
   MoveAroundTag,
+  MoveASingleQuotes,
+  MoveASquareBracket,
+  MoveInsideCharacter,
+  MoveInsideTag,
+  MoveQuoteMatch,
 } from './../motion';
+import { ChangeOperator, DeleteOperator, YankOperator } from './../operator';
 import {
-  TextObjectMovement,
-  SelectInnerWord,
   SelectInnerBigWord,
-  SelectInnerSentence,
   SelectInnerParagraph,
+  SelectInnerSentence,
+  SelectInnerWord,
+  TextObjectMovement,
 } from './../textobject';
 
 @RegisterAction
@@ -51,6 +51,10 @@ class CommandSurroundAddTarget extends BaseCommand {
     ['W'],
     ['s'],
     ['p'],
+    ['b'],
+    ['B'],
+    ['r'],
+    ['a'],
   ];
   isCompleteAction = false;
   runsOnceForEveryCursor() {
@@ -64,8 +68,26 @@ class CommandSurroundAddTarget extends BaseCommand {
 
     vimState.surround.target = this.keysPressed[this.keysPressed.length - 1];
 
+    if (vimState.surround.target === 'b') {
+      vimState.surround.target = ')';
+    }
+
+    if (vimState.surround.target === 'B') {
+      vimState.surround.target = '}';
+    }
+
+    if (vimState.surround.target === 'r') {
+      vimState.surround.target = ']';
+    }
+
+    if (vimState.surround.target === 'a') {
+      vimState.surround.target = '>';
+    }
+
     // It's possible we're already done, e.g. dst
-    await CommandSurroundAddToReplacement.TryToExecuteSurround(vimState, position);
+    if (await CommandSurroundAddToReplacement.TryToExecuteSurround(vimState, position)) {
+      this.isCompleteAction = true;
+    }
 
     return vimState;
   }
@@ -115,7 +137,10 @@ class CommandSurroundModeRepeat extends BaseMovement {
   public async execAction(position: Position, vimState: VimState): Promise<IMovement> {
     return {
       start: position.getLineBeginRespectingIndent(),
-      stop: position.getLineEnd().getLastWordEnd().getRight(),
+      stop: position
+        .getLineEnd()
+        .getLastWordEnd()
+        .getRight(),
     };
   }
 
@@ -135,7 +160,7 @@ class CommandSurroundModeStart extends BaseCommand {
 
   public async exec(position: Position, vimState: VimState): Promise<VimState> {
     // Only execute the action if the configuration is set
-    if (!Configuration.surround) {
+    if (!configuration.surround) {
       return vimState;
     }
 
@@ -171,7 +196,7 @@ class CommandSurroundModeStart extends BaseCommand {
     };
 
     if (operatorString !== 'yank') {
-      vimState.currentMode = ModeName.SurroundInputMode;
+      await vimState.setCurrentMode(ModeName.SurroundInputMode);
     }
 
     return vimState;
@@ -201,7 +226,7 @@ class CommandSurroundModeStartVisual extends BaseCommand {
 
   public async exec(position: Position, vimState: VimState): Promise<VimState> {
     // Only execute the action if the configuration is set
-    if (!Configuration.surround) {
+    if (!configuration.surround) {
       return vimState;
     }
 
@@ -210,22 +235,22 @@ class CommandSurroundModeStartVisual extends BaseCommand {
     vimState.recordedState.surroundKeyIndexStart = vimState.keyHistory.length;
 
     // Make sure cursor positions are ordered correctly for top->down or down->top selection
-    if (vimState.cursorStartPosition.line > vimState.cursorPosition.line) {
-      [vimState.cursorPosition, vimState.cursorStartPosition] = [
+    if (vimState.cursorStartPosition.line > vimState.cursorStopPosition.line) {
+      [vimState.cursorStopPosition, vimState.cursorStartPosition] = [
         vimState.cursorStartPosition,
-        vimState.cursorPosition,
+        vimState.cursorStopPosition,
       ];
     }
 
     // Make sure start/end cursor positions are in order
     if (
-      vimState.cursorPosition.line < vimState.cursorPosition.line ||
-      (vimState.cursorPosition.line === vimState.cursorStartPosition.line &&
-        vimState.cursorPosition.character < vimState.cursorStartPosition.character)
+      vimState.cursorStopPosition.line < vimState.cursorStopPosition.line ||
+      (vimState.cursorStopPosition.line === vimState.cursorStartPosition.line &&
+        vimState.cursorStopPosition.character < vimState.cursorStartPosition.character)
     ) {
-      [vimState.cursorPosition, vimState.cursorStartPosition] = [
+      [vimState.cursorStopPosition, vimState.cursorStartPosition] = [
         vimState.cursorStartPosition,
-        vimState.cursorPosition,
+        vimState.cursorStopPosition,
       ];
     }
 
@@ -234,7 +259,7 @@ class CommandSurroundModeStartVisual extends BaseCommand {
       target: undefined,
       operator: 'yank',
       replacement: undefined,
-      range: new Range(vimState.cursorStartPosition, vimState.cursorPosition),
+      range: new Range(vimState.cursorStartPosition, vimState.cursorStopPosition),
       isVisualLine: false,
     };
 
@@ -242,8 +267,8 @@ class CommandSurroundModeStartVisual extends BaseCommand {
       vimState.surround.isVisualLine = true;
     }
 
-    vimState.currentMode = ModeName.SurroundInputMode;
-    vimState.cursorPosition = vimState.cursorStartPosition;
+    await vimState.setCurrentMode(ModeName.SurroundInputMode);
+    vimState.cursorStopPosition = vimState.cursorStartPosition;
 
     return vimState;
   }
@@ -303,17 +328,19 @@ export class CommandSurroundAddToReplacement extends BaseCommand {
 
     vimState.surround.replacement += stringToAdd;
 
-    await CommandSurroundAddToReplacement.TryToExecuteSurround(vimState, position);
+    if (await CommandSurroundAddToReplacement.TryToExecuteSurround(vimState, position)) {
+      this.isCompleteAction = true;
+    }
 
     return vimState;
   }
 
-  public static Finish(vimState: VimState): boolean {
+  public static async Finish(vimState: VimState): Promise<boolean> {
     vimState.recordedState.hasRunOperator = false;
     vimState.recordedState.actionsRun = [];
     vimState.recordedState.hasRunSurround = true;
     vimState.surround = undefined;
-    vimState.currentMode = ModeName.Normal;
+    await vimState.setCurrentMode(ModeName.Normal);
 
     // Record keys that were pressed since surround started
     for (
@@ -324,18 +351,22 @@ export class CommandSurroundAddToReplacement extends BaseCommand {
       vimState.recordedState.surroundKeys.push(vimState.keyHistory[i]);
     }
 
-    return false;
+    return true;
   }
 
   // we assume that we start directly on the characters we're operating over
   // e.g. cs{' starts us with start on { end on }.
 
   public static RemoveWhitespace(vimState: VimState, start: Position, stop: Position): void {
-    const firstRangeStart = start.getRightThroughLineBreaks();
-    let firstRangeEnd = start.getRightThroughLineBreaks();
+    const firstRangeStart = start.getRight();
+    let firstRangeEnd = start.getRight();
 
     let secondRangeStart = stop.getLeftThroughLineBreaks();
-    const secondRangeEnd = stop.getLeftThroughLineBreaks().getRight();
+    let secondRangeEnd = stop.getLeftThroughLineBreaks().getRight();
+    if (stop.isLineBeginning()) {
+      secondRangeStart = stop;
+      secondRangeEnd = stop.getRight();
+    }
 
     if (firstRangeEnd.isEqual(secondRangeStart)) {
       return;
@@ -343,8 +374,8 @@ export class CommandSurroundAddToReplacement extends BaseCommand {
 
     while (
       !firstRangeEnd.isEqual(stop) &&
-      TextEditor.getCharAt(firstRangeEnd).match(/[ \t]/) &&
-      !firstRangeEnd.isLineEnd()
+      !firstRangeEnd.isLineEnd() &&
+      TextEditor.getCharAt(firstRangeEnd).match(/[ \t]/)
     ) {
       firstRangeEnd = firstRangeEnd.getRight();
     }
@@ -378,7 +409,7 @@ export class CommandSurroundAddToReplacement extends BaseCommand {
     let endReplace = replacement;
 
     if (startReplace[0] === '<') {
-      let tagName = /([-\w]+)/.exec(startReplace);
+      let tagName = /([-\w.]+)/.exec(startReplace);
       if (tagName) {
         endReplace = `</${tagName[1]}>`;
       } else {
@@ -389,7 +420,7 @@ export class CommandSurroundAddToReplacement extends BaseCommand {
     if (startReplace.length === 1 && startReplace in PairMatcher.pairings) {
       endReplace = PairMatcher.pairings[startReplace].match;
 
-      if (!PairMatcher.pairings[startReplace].nextMatchIsForward) {
+      if (!PairMatcher.pairings[startReplace].isNextMatchForward) {
         [startReplace, endReplace] = [endReplace, startReplace];
       } else {
         startReplace = startReplace + ' ';
@@ -405,16 +436,27 @@ export class CommandSurroundAddToReplacement extends BaseCommand {
     vimState: VimState,
     position: Position
   ): Promise<boolean> {
-    const { target, replacement, operator } = vimState.surround!;
+    const { target, operator } = vimState.surround!;
+    let replacement = vimState.surround!.replacement;
+
+    // Flag of whether or not html attributes should be retained
+    let retainAttributes = false;
 
     if (operator === 'change' || operator === 'yank') {
       if (!replacement) {
         return false;
       }
 
-      // This is an incomplete tag. Wait for the user to finish it.
-      if (replacement[0] === '<' && replacement[replacement.length - 1] !== '>') {
-        return false;
+      // This is currently an incomplete tag. Check if we should finish it.
+      if (replacement[0] === '<') {
+        // If enter is used, retain the html attributes if possible and consider this tag done
+        // if neither > or <enter> were pressed, this is not a complete tag so return false
+        if (replacement[replacement.length - 1] === '\n') {
+          replacement = replacement.slice(0, replacement.length - 1);
+          retainAttributes = true;
+        } else if (replacement[replacement.length - 1] !== '>') {
+          return false;
+        }
       }
     }
 
@@ -431,7 +473,9 @@ export class CommandSurroundAddToReplacement extends BaseCommand {
       let start = vimState.surround.range.start;
       let stop = vimState.surround.range.stop;
 
-      stop = stop.getRight();
+      if (TextEditor.getCharAt(stop) !== ' ') {
+        stop = stop.getRight();
+      }
 
       if (vimState.surround.isVisualLine) {
         startReplace = startReplace + '\n';
@@ -511,25 +555,34 @@ export class CommandSurroundAddToReplacement extends BaseCommand {
     }
 
     if (target === 't') {
+      // `MoveInsideTag` must be run first as otherwise the search will
+      // look for the next enclosing tag after having selected the first
+      let innerTagContent = await new MoveInsideTag().execAction(position, vimState);
       let { start, stop, failed } = await new MoveAroundTag().execAction(position, vimState);
-      let tagEnd = await new MoveInsideTag().execAction(position, vimState);
 
-      if (failed || tagEnd.failed) {
+      if (failed || innerTagContent.failed) {
         return CommandSurroundAddToReplacement.Finish(vimState);
       }
 
       stop = stop.getRight();
-      tagEnd.stop = tagEnd.stop.getRight();
+      innerTagContent.stop = innerTagContent.stop.getRight();
 
       if (failed) {
         return CommandSurroundAddToReplacement.Finish(vimState);
       }
 
       startReplaceRange = new Range(start, start.getRight());
-      endReplaceRange = new Range(tagEnd.stop, tagEnd.stop.getRight());
+      endReplaceRange = new Range(innerTagContent.stop, innerTagContent.stop.getRight());
 
-      startDeleteRange = new Range(start.getRight(), tagEnd.start);
-      endDeleteRange = new Range(tagEnd.stop.getRight(), stop);
+      if (retainAttributes) {
+        // Don't remove the attributes, just the tag name (one WORD)
+        const tagNameEnd = start.getCurrentBigWordEnd().getRight();
+        startDeleteRange = new Range(start.getRight(), tagNameEnd);
+      } else {
+        startDeleteRange = new Range(start.getRight(), innerTagContent.start);
+      }
+
+      endDeleteRange = new Range(innerTagContent.stop.getRight(), stop);
     }
 
     if (operator === 'change') {
@@ -597,15 +650,20 @@ export class CommandSurroundAddToReplacement extends BaseCommand {
       }
 
       if (startReplaceRange) {
-        TextEditor.replaceText(
-          vimState,
-          startReplace,
-          startReplaceRange.start,
-          startReplaceRange.stop
-        );
+        vimState.recordedState.transformations.push({
+          type: 'replaceText',
+          text: startReplace,
+          start: startReplaceRange.start,
+          end: startReplaceRange.stop,
+        });
       }
       if (endReplaceRange) {
-        TextEditor.replaceText(vimState, endReplace, endReplaceRange.start, endReplaceRange.stop);
+        vimState.recordedState.transformations.push({
+          type: 'replaceText',
+          text: endReplace,
+          start: endReplaceRange.start,
+          end: endReplaceRange.stop,
+        });
       }
       if (startDeleteRange) {
         vimState.recordedState.transformations.push({

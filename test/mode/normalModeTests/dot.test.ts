@@ -1,56 +1,19 @@
-import * as vscode from 'vscode';
-import {
-  setupWorkspace,
-  cleanUpWorkspace,
-  setTextEditorOptions,
-  assertEqualLines,
-} from './../../testUtils';
-import { ModeHandler } from '../../../src/mode/modeHandler';
-import { waitForTabChange } from '../../../src/util';
-import * as assert from 'assert';
+import { Configuration } from '../../testConfiguration';
 import { getTestingFunctions } from '../../testSimplifier';
-import { getAndUpdateModeHandler } from '../../../extension';
+import { cleanUpWorkspace, setupWorkspace } from './../../testUtils';
 
 suite('Dot Operator', () => {
-  let modeHandler: ModeHandler;
-
   let { newTest, newTestOnly } = getTestingFunctions();
 
   setup(async () => {
-    await setupWorkspace();
-    setTextEditorOptions(4, false);
-    modeHandler = await getAndUpdateModeHandler();
+    let configuration = new Configuration();
+    configuration.tabstop = 4;
+    configuration.expandtab = false;
+
+    await setupWorkspace(configuration);
   });
 
   teardown(cleanUpWorkspace);
-
-  test('repeats actions across editors ', async () => {
-    // setting the content of the first 2 tabs
-    const firstTabContent = 'some\ntest\nabc\nend';
-    const secondTabContent = 'another\ntest\ndef\nend';
-    const firstTabKeys = ['<Esc>', 'a'].concat(firstTabContent.split(''));
-    const secondTabKeys = ['<Esc>', 'a'].concat(secondTabContent.split(''));
-    await setupWorkspace();
-    setTextEditorOptions(5, false);
-
-    modeHandler.vimState.editor = vscode.window.activeTextEditor!;
-
-    await modeHandler.handleMultipleKeyEvents(firstTabKeys.concat(['<Esc>']));
-
-    await modeHandler.handleMultipleKeyEvents(['<Esc>', 'g', 'T']);
-    await waitForTabChange();
-    modeHandler.vimState.editor = vscode.window.activeTextEditor!;
-    await modeHandler.handleMultipleKeyEvents(secondTabKeys.concat(['<Esc>']));
-
-    // running an action in second tab and repeating in first tab
-    await modeHandler.handleMultipleKeyEvents(['g', 'g', 'd', 'd']);
-    await assertEqualLines(['test', 'def', 'end']);
-    await modeHandler.handleMultipleKeyEvents(['g', 't']);
-    await waitForTabChange();
-    modeHandler.vimState.editor = vscode.window.activeTextEditor!;
-    await modeHandler.handleMultipleKeyEvents(['<Esc>', 'g', 'g', '.']);
-    await assertEqualLines(['test', 'abc', 'end']);
-  });
 
   newTest({
     title: "Can repeat '~' with <num>",
@@ -106,8 +69,11 @@ suite('Repeat content change', () => {
   let { newTest, newTestOnly } = getTestingFunctions();
 
   setup(async () => {
-    await setupWorkspace();
-    setTextEditorOptions(4, false);
+    let configuration = new Configuration();
+    configuration.tabstop = 4;
+    configuration.expandtab = false;
+
+    await setupWorkspace(configuration);
   });
 
   teardown(cleanUpWorkspace);

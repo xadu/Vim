@@ -1,10 +1,10 @@
-import { setupWorkspace, cleanUpWorkspace, assertEqual, assertEqualLines } from './../testUtils';
+import * as vscode from 'vscode';
+
+import { getAndUpdateModeHandler } from '../../extension';
 import { ModeName } from '../../src/mode/mode';
 import { ModeHandler } from '../../src/mode/modeHandler';
 import { getTestingFunctions } from '../testSimplifier';
-
-import * as vscode from 'vscode';
-import { getAndUpdateModeHandler } from '../../extension';
+import { assertEqual, assertEqualLines, cleanUpWorkspace, setupWorkspace } from './../testUtils';
 
 suite('Mode Visual Block', () => {
   let modeHandler: ModeHandler;
@@ -106,6 +106,13 @@ suite('Mode Visual Block', () => {
     end: ['t|e', 'te'],
   });
 
+  newTest({
+    title: "Can handle 'gj'",
+    start: ['t|est', 'test'],
+    keysPressed: '<C-v>gjI123',
+    end: ['t123|est', 't123est'],
+  });
+
   suite('Non-darwin <C-c> tests', () => {
     if (process.platform === 'darwin') {
       return;
@@ -130,5 +137,26 @@ suite('Mode Visual Block', () => {
       // unfortunately it is
       assertEqualLines(['one', 'one', 'one', 'one two three', 'one two three', 'one two three']);
     });
+  });
+
+  newTest({
+    title: 'Properly add to end of lines j then $',
+    start: ['|Dog', 'Angry', 'Dog', 'Angry', 'Dog'],
+    keysPressed: '<C-v>4j$Aaa',
+    end: ['Dogaa|', 'Angryaa', 'Dogaa', 'Angryaa', 'Dogaa'],
+  });
+
+  newTest({
+    title: 'Properly add to end of lines $ then j',
+    start: ['|Dog', 'Angry', 'Dog', 'Angry', 'Dog'],
+    keysPressed: '<C-v>$4jAaa<Esc>',
+    end: ['Doga|a', 'Angryaa', 'Dogaa', 'Angryaa', 'Dogaa'],
+  });
+
+  newTest({
+    title: 'o works in visual block mode',
+    start: ['|foo', 'bar', 'baz'],
+    keysPressed: '<C-v>jjllold',
+    end: ['|f', 'b', 'b'],
   });
 });

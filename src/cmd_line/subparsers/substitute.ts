@@ -2,6 +2,7 @@
 
 import * as node from '../commands/substitute';
 import { Scanner } from '../scanner';
+import * as error from '../../error';
 
 function isValidDelimiter(char: string): boolean {
   return !!/^[^\w\s\\|"]{1}$/g.exec(char);
@@ -33,6 +34,8 @@ function parsePattern(pattern: string, scanner: Scanner, delimiter: string): [st
               pattern += currentChar;
               break;
           }
+        } else {
+          pattern += currentChar;
         }
       }
 
@@ -93,7 +96,8 @@ function parseSubstituteFlags(scanner: Scanner): number {
         flags = flags | node.SubstituteFlags.UsePreviousPattern;
         break;
       default:
-        return node.SubstituteFlags.None;
+        scanner.backup();
+        return flags;
     }
 
     index++;
@@ -112,7 +116,7 @@ function parseCount(scanner: Scanner): number {
     countStr += scanner.next();
   }
 
-  let count = Number.parseInt(countStr);
+  let count = Number.parseInt(countStr, 10);
 
   // TODO: If count is not valid number, raise error
   return Number.isInteger(count) ? count : -1;
@@ -124,39 +128,67 @@ function parseCount(scanner: Scanner): number {
  * {string} can be a literal string, or something special; see |sub-replace-special|.
  */
 export function parseSubstituteCommandArgs(args: string): node.SubstituteCommand {
-  let delimiter = args[0];
+  try {
+    let searchPattern: string | undefined;
+    let replaceString: string;
+    let flags: number;
+    let count: number;
 
-  if (isValidDelimiter(delimiter)) {
-    let scanner = new Scanner(args.substr(1, args.length - 1));
-    let [searchPattern, searchDelimiter] = parsePattern('', scanner, delimiter);
-
-    if (searchDelimiter) {
-      let replaceString = parsePattern('', scanner, delimiter)[0];
-
-      scanner.skipWhiteSpace();
-      let flags = parseSubstituteFlags(scanner);
-      scanner.skipWhiteSpace();
-      let count = parseCount(scanner);
+    if (!args) {
+      // special case for :s
       return new node.SubstituteCommand({
-        pattern: searchPattern,
-        replace: replaceString,
-        flags: flags,
-        count: count,
-      });
-    } else {
-      return new node.SubstituteCommand({
-        pattern: searchPattern,
-        replace: '',
+        pattern: undefined,
+        replace: '', // ignored in this context
         flags: node.SubstituteFlags.None,
-        count: 0,
       });
     }
-  }
+    let scanner: Scanner;
 
-  // TODO(rebornix): Can this ever happen?
-  return new node.SubstituteCommand({
-    pattern: '',
-    replace: '',
-    flags: node.SubstituteFlags.None,
-  });
+    let delimiter = args[0];
+
+    if (isValidDelimiter(delimiter)) {
+      if (args.length === 1) {
+        // special case for :s/ or other delimiters
+        return new node.SubstituteCommand({
+          pattern: '',
+          replace: '',
+          flags: node.SubstituteFlags.None,
+        });
+      }
+
+      let secondDelimiterFound: boolean;
+
+      scanner = new Scanner(args.substr(1, args.length - 1));
+      [searchPattern, secondDelimiterFound] = parsePattern('', scanner, delimiter);
+
+      if (!secondDelimiterFound) {
+        // special case for :s/search
+        return new node.SubstituteCommand({
+          pattern: searchPattern,
+          replace: '',
+          flags: node.SubstituteFlags.None,
+        });
+      }
+      replaceString = parsePattern('', scanner, delimiter)[0];
+    } else {
+      // if it's not a valid delimiter, it must be flags, so start parsing from here
+      searchPattern = undefined;
+      replaceString = '';
+      scanner = new Scanner(args);
+    }
+
+    scanner.skipWhiteSpace();
+    flags = parseSubstituteFlags(scanner);
+    scanner.skipWhiteSpace();
+    count = parseCount(scanner);
+
+    return new node.SubstituteCommand({
+      pattern: searchPattern,
+      replace: replaceString,
+      flags: flags,
+      count: count,
+    });
+  } catch (e) {
+    throw error.VimError.fromCode(error.ErrorCode.E486);
+  }
 }

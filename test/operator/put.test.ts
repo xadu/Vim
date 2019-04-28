@@ -1,16 +1,11 @@
-import { ModeHandler } from '../../src/mode/modeHandler';
-import { setupWorkspace, cleanUpWorkspace, assertEqualLines } from '../testUtils';
 import { getTestingFunctions } from '../testSimplifier';
-import { getAndUpdateModeHandler } from '../../extension';
+import { cleanUpWorkspace, setupWorkspace } from '../testUtils';
 
 suite('put operator', () => {
-  let modeHandler: ModeHandler;
-
   let { newTest, newTestOnly } = getTestingFunctions();
 
   setup(async () => {
     await setupWorkspace();
-    modeHandler = await getAndUpdateModeHandler();
   });
 
   teardown(cleanUpWorkspace);
@@ -48,5 +43,33 @@ suite('put operator', () => {
     start: ['o|ne', 'two', 'three', 'four'],
     keysPressed: '2yyjjpk',
     end: ['one', 'two', '|three', 'one', 'two', 'four'],
+  });
+
+  newTest({
+    title: 'test visual block single line yank p',
+    start: ['12|345'],
+    keysPressed: '<C-v>llyhp',
+    end: ['12|345345'],
+  });
+
+  newTest({
+    title: 'test visual block single line yank P',
+    start: ['12|345'],
+    keysPressed: '<C-v>llyhP',
+    end: ['1|3452345'],
+  });
+
+  newTest({
+    title: 'test visual block single line delete p',
+    start: ['12|345'],
+    keysPressed: '<C-v>lldhp',
+    end: ['1|3452'],
+  });
+
+  newTest({
+    title: 'test visual block single line delete P',
+    start: ['12|345'],
+    keysPressed: '<C-v>lldhP',
+    end: ['|34512'],
   });
 });

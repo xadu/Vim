@@ -1,16 +1,12 @@
-import { setupWorkspace, cleanUpWorkspace } from './../testUtils';
 import { ModeName } from '../../src/mode/mode';
-import { ModeHandler } from '../../src/mode/modeHandler';
 import { getTestingFunctions } from '../testSimplifier';
-import { getAndUpdateModeHandler } from '../../extension';
+import { cleanUpWorkspace, setupWorkspace } from './../testUtils';
 
 suite('comment operator', () => {
-  let modeHandler: ModeHandler;
   let { newTest, newTestOnly } = getTestingFunctions();
 
   setup(async () => {
-    await setupWorkspace('.js');
-    modeHandler = await getAndUpdateModeHandler();
+    await setupWorkspace(undefined, '.js');
   });
 
   teardown(cleanUpWorkspace);

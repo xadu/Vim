@@ -1,7 +1,14 @@
-import { VimState, RecordedState } from './../mode/modeHandler';
-import { YankOperator, BaseOperator, DeleteOperator } from './../actions/operator';
-import { CommandYankFullLine, BaseCommand, CommandRegister } from './../actions/commands/actions';
-import * as util from './../util';
+import { Clipboard } from './../util/clipboard';
+import {
+  ActionDeleteChar,
+  ActionDeleteCharWithDeleteKey,
+  ActionDeleteLastChar,
+  CommandRegister,
+  CommandYankFullLine,
+} from './../actions/commands/actions';
+import { DeleteOperator, YankOperator } from './../actions/operator';
+import { RecordedState } from './../state/recordedState';
+import { VimState } from './../state/vimState';
 
 /**
  * There are two different modes of copy/paste in Vim - copy by character
@@ -10,7 +17,7 @@ import * as util from './../util';
  * yy).
  */
 export enum RegisterMode {
-  FigureItOutFromCurrentMode,
+  AscertainFromCurrentMode,
   CharacterWise,
   LineWise,
   BlockWise,
@@ -39,6 +46,7 @@ export class Register {
     '.': { text: '', registerMode: RegisterMode.CharacterWise, isClipboardRegister: false },
     '*': { text: '', registerMode: RegisterMode.CharacterWise, isClipboardRegister: true },
     '+': { text: '', registerMode: RegisterMode.CharacterWise, isClipboardRegister: true },
+    '-': { text: '', registerMode: RegisterMode.CharacterWise, isClipboardRegister: false },
     _: { text: '', registerMode: RegisterMode.CharacterWise, isClipboardRegister: false },
     '0': { text: '', registerMode: RegisterMode.CharacterWise, isClipboardRegister: false },
     '1': { text: '', registerMode: RegisterMode.CharacterWise, isClipboardRegister: false },
@@ -51,15 +59,6 @@ export class Register {
     '8': { text: '', registerMode: RegisterMode.CharacterWise, isClipboardRegister: false },
     '9': { text: '', registerMode: RegisterMode.CharacterWise, isClipboardRegister: false },
   };
-
-  public static isBlackHoleRegister(registerName: string): boolean {
-    return registerName === '_';
-  }
-
-  public static isClipboardRegister(registerName: string): boolean {
-    const register = Register.registers[registerName];
-    return register && register.isClipboardRegister;
-  }
 
   /**
    * ". readonly register: last content change.
@@ -76,14 +75,6 @@ export class Register {
 
   public static isValidRegisterForMacro(register: string): boolean {
     return /^[a-zA-Z0-9]+$/.test(register);
-  }
-
-  private static isValidLowercaseRegister(register: string): boolean {
-    return /^[a-z]+$/.test(register);
-  }
-
-  private static isValidUppercaseRegister(register: string): boolean {
-    return /^[A-Z]+$/.test(register);
   }
 
   /**
@@ -116,6 +107,23 @@ export class Register {
     }
   }
 
+  private static isBlackHoleRegister(registerName: string): boolean {
+    return registerName === '_';
+  }
+
+  private static isClipboardRegister(registerName: string): boolean {
+    const register = Register.registers[registerName];
+    return register && register.isClipboardRegister;
+  }
+
+  private static isValidLowercaseRegister(register: string): boolean {
+    return /^[a-z]+$/.test(register);
+  }
+
+  private static isValidUppercaseRegister(register: string): boolean {
+    return /^[A-Z]+$/.test(register);
+  }
+
   /**
    * Puts the content at the specified index of the multicursor Register.
    *
@@ -130,7 +138,7 @@ export class Register {
     if (multicursorIndex === 0) {
       Register.registers[register.toLowerCase()] = {
         text: [],
-        registerMode: vimState.effectiveRegisterMode(),
+        registerMode: vimState.effectiveRegisterMode,
         isClipboardRegister: Register.isClipboardRegister(register),
       };
     }
@@ -143,7 +151,7 @@ export class Register {
 
     (registerContent.text as string[]).push(content as string);
 
-    if (multicursorIndex === vimState.allCursors.length - 1) {
+    if (multicursorIndex === vimState.cursors.length - 1) {
       if (registerContent.isClipboardRegister) {
         let clipboardText: string = '';
 
@@ -152,10 +160,10 @@ export class Register {
         }
         clipboardText = clipboardText.replace(/\n$/, '');
 
-        util.clipboardCopy(clipboardText);
+        Clipboard.Copy(clipboardText);
       }
 
-      Register.ProcessNumberedRegister(registerContent.text, vimState);
+      Register.processNumberedRegister(registerContent.text, vimState);
     }
   }
 
@@ -180,15 +188,15 @@ export class Register {
       if (typeof appendToRegister.text === 'string') {
         createEmptyRegister = true;
       } else {
-        if ((appendToRegister.text as string[]).length !== vimState.allCursors.length) {
+        if ((appendToRegister.text as string[]).length !== vimState.cursors.length) {
           createEmptyRegister = true;
         }
       }
 
       if (createEmptyRegister) {
         Register.registers[register.toLowerCase()] = {
-          text: Array<string>(vimState.allCursors.length).fill(''),
-          registerMode: vimState.effectiveRegisterMode(),
+          text: Array<string>(vimState.cursors.length).fill(''),
+          registerMode: vimState.effectiveRegisterMode,
           isClipboardRegister: Register.isClipboardRegister(register),
         };
 
@@ -196,7 +204,7 @@ export class Register {
       }
     }
 
-    let currentRegisterMode = vimState.effectiveRegisterMode();
+    let currentRegisterMode = vimState.effectiveRegisterMode;
     if (
       appendToRegister.registerMode === RegisterMode.CharacterWise &&
       currentRegisterMode === RegisterMode.CharacterWise
@@ -219,16 +227,16 @@ export class Register {
     vimState: VimState
   ): void {
     if (Register.isClipboardRegister(register)) {
-      util.clipboardCopy(content.toString());
+      Clipboard.Copy(content.toString());
     }
 
     Register.registers[register.toLowerCase()] = {
       text: content,
-      registerMode: vimState.effectiveRegisterMode(),
+      registerMode: vimState.effectiveRegisterMode,
       isClipboardRegister: Register.isClipboardRegister(register),
     };
 
-    Register.ProcessNumberedRegister(content, vimState);
+    Register.processNumberedRegister(content, vimState);
   }
 
   /**
@@ -242,7 +250,7 @@ export class Register {
     vimState: VimState
   ): void {
     let appendToRegister = Register.registers[register.toLowerCase()];
-    let currentRegisterMode = vimState.effectiveRegisterMode();
+    let currentRegisterMode = vimState.effectiveRegisterMode;
 
     // Check if appending to a multicursor register or normal
     if (appendToRegister.text instanceof Array) {
@@ -275,14 +283,14 @@ export class Register {
   public static putByKey(
     content: RegisterContent,
     register = '"',
-    registerMode = RegisterMode.FigureItOutFromCurrentMode
+    registerMode = RegisterMode.AscertainFromCurrentMode
   ): void {
     if (!Register.isValidRegister(register)) {
       throw new Error(`Invalid register ${register}`);
     }
 
     if (Register.isClipboardRegister(register)) {
-      util.clipboardCopy(content.toString());
+      Clipboard.Copy(content.toString());
     }
 
     if (Register.isBlackHoleRegister(register)) {
@@ -291,7 +299,7 @@ export class Register {
 
     Register.registers[register] = {
       text: content,
-      registerMode: registerMode || RegisterMode.FigureItOutFromCurrentMode,
+      registerMode: registerMode || RegisterMode.AscertainFromCurrentMode,
       isClipboardRegister: Register.isClipboardRegister(register),
     };
   }
@@ -299,11 +307,9 @@ export class Register {
   /**
    * Handles special cases for Yank- and DeleteOperator.
    */
-  private static ProcessNumberedRegister(content: RegisterContent, vimState: VimState): void {
+  private static processNumberedRegister(content: RegisterContent, vimState: VimState): void {
     // Find the BaseOperator of the current actions
-    const baseOperator = vimState.recordedState.actionsRun.find(value => {
-      return value instanceof BaseOperator || value instanceof BaseCommand;
-    });
+    const baseOperator = vimState.recordedState.operator || vimState.recordedState.command;
 
     if (baseOperator instanceof YankOperator || baseOperator instanceof CommandYankFullLine) {
       // 'yank' to 0 only if no register was specified
@@ -313,22 +319,33 @@ export class Register {
 
       if (!registerCommand) {
         Register.registers['0'].text = content;
-        Register.registers['0'].registerMode = vimState.effectiveRegisterMode();
+        Register.registers['0'].registerMode = vimState.effectiveRegisterMode;
       }
     } else if (
-      baseOperator instanceof DeleteOperator &&
+      (baseOperator instanceof DeleteOperator ||
+        baseOperator instanceof ActionDeleteChar ||
+        baseOperator instanceof ActionDeleteLastChar ||
+        baseOperator instanceof ActionDeleteCharWithDeleteKey) &&
       !(vimState.isRecordingMacro || vimState.isReplayingMacro)
     ) {
-      // shift 'delete-history' register
-      for (let index = 9; index > 1; index--) {
-        Register.registers[String(index)].text = Register.registers[String(index - 1)].text;
-        Register.registers[String(index)].registerMode =
-          Register.registers[String(index - 1)].registerMode;
-      }
+      if (
+        !content.toString().match(/\n/g) &&
+        vimState.currentRegisterMode !== RegisterMode.LineWise
+      ) {
+        Register.registers['-'].text = content;
+        Register.registers['-'].registerMode = RegisterMode.CharacterWise;
+      } else {
+        // shift 'delete-history' register
+        for (let index = 9; index > 1; index--) {
+          Register.registers[String(index)].text = Register.registers[String(index - 1)].text;
+          Register.registers[String(index)].registerMode =
+            Register.registers[String(index - 1)].registerMode;
+        }
 
-      // Paste last delete into register '1'
-      Register.registers['1'].text = content;
-      Register.registers['1'].registerMode = vimState.effectiveRegisterMode();
+        // Paste last delete into register '1'
+        Register.registers['1'].text = content;
+        Register.registers['1'].registerMode = vimState.effectiveRegisterMode;
+      }
     }
   }
 
@@ -360,7 +377,7 @@ export class Register {
 
     /* Read from system clipboard */
     if (Register.isClipboardRegister(register)) {
-      let text = util.clipboardPaste();
+      let text = await Clipboard.Paste();
 
       // Harmonize newline character
       text = text.replace(/\r\n/g, '\n');
@@ -368,7 +385,7 @@ export class Register {
       let registerText: string | string[];
       if (vimState && vimState.isMultiCursor) {
         registerText = text.split('\n');
-        if (registerText.length !== vimState.allCursors.length) {
+        if (registerText.length !== vimState.cursors.length) {
           registerText = text;
         }
       } else {
@@ -385,7 +402,7 @@ export class Register {
         registerText = text;
       } else {
         if (vimState && vimState.isMultiCursor && typeof text === 'object') {
-          if ((text as string[]).length === vimState.allCursors.length) {
+          if ((text as string[]).length === vimState.cursors.length) {
             registerText = text;
           } else {
             registerText = (text as string[]).join('\n');

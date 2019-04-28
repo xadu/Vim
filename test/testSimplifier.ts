@@ -1,38 +1,51 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
-import { ModeName } from '../src/mode/mode';
-import { HistoryTracker } from '../src/history/historyTracker';
+
+import { getAndUpdateModeHandler } from '../extension';
 import { Position } from '../src/common/motion/position';
+import { Globals } from '../src/globals';
+import { ModeName } from '../src/mode/mode';
 import { ModeHandler } from '../src/mode/modeHandler';
 import { TextEditor } from '../src/textEditor';
+import { waitForCursorSync } from '../src/util/util';
 import { assertEqualLines } from './testUtils';
-import { waitForCursorUpdatesToHappen } from '../src/util';
-import { Globals } from '../src/globals';
-import { getAndUpdateModeHandler } from '../extension';
 
 export function getTestingFunctions() {
+  const getNiceStack = (stack: string | undefined): string => {
+    return stack
+      ? stack
+          .split('\n')
+          .splice(2, 1)
+          .join('\n')
+      : 'no stack available :(';
+  };
+
   const newTest = (testObj: ITestObject): void => {
     const stack = new Error().stack;
-    let niceStack = stack ? stack.split('\n').splice(2, 1).join('\n') : 'no stack available :(';
+    let niceStack = getNiceStack(stack);
 
     test(testObj.title, async () =>
-      testIt.bind(null, await getAndUpdateModeHandler())(testObj).catch((reason: Error) => {
-        reason.stack = niceStack;
-        throw reason;
-      })
+      testIt
+        .bind(null, await getAndUpdateModeHandler())(testObj)
+        .catch((reason: Error) => {
+          reason.stack = niceStack;
+          throw reason;
+        })
     );
   };
 
   const newTestOnly = (testObj: ITestObject): void => {
     console.log('!!! Running single test !!!');
     const stack = new Error().stack;
-    let niceStack = stack ? stack.split('\n').splice(2, 1).join('\n') : 'no stack available :(';
+    let niceStack = getNiceStack(stack);
 
     test.only(testObj.title, async () =>
-      testIt.bind(null, await getAndUpdateModeHandler())(testObj).catch((reason: Error) => {
-        reason.stack = niceStack;
-        throw reason;
-      })
+      testIt
+        .bind(null, await getAndUpdateModeHandler())(testObj)
+        .catch((reason: Error) => {
+          reason.stack = niceStack;
+          throw reason;
+        })
     );
   };
 
@@ -48,6 +61,7 @@ interface ITestObject {
   keysPressed: string;
   end: string[];
   endMode?: ModeName;
+  jumps?: string[];
 }
 
 class TestObjectHelper {
@@ -91,7 +105,7 @@ class TestObjectHelper {
     for (let i = 0; i < lines.length; i++) {
       let columnIdx = lines[i].indexOf('|');
       if (columnIdx >= 0) {
-        ret.position = ret.position.setLocation(i, columnIdx);
+        ret.position = ret.position.withLine(i).withColumn(columnIdx);
         ret.success = true;
       }
     }
@@ -158,11 +172,24 @@ function tokenizeKeySequence(sequence: string): string[] {
   let key = '';
   let result: string[] = [];
 
+  // no close bracket, probably trying to do a left shift, take literal
+  // char sequence
+  function rawTokenize(characters: string): void {
+    for (const char of characters) {
+      result.push(char);
+    }
+  }
+
   for (const char of sequence) {
     key += char;
 
     if (char === '<') {
-      isBracketedKey = true;
+      if (isBracketedKey) {
+        rawTokenize(key.slice(0, key.length - 1));
+        key = '<';
+      } else {
+        isBracketedKey = true;
+      }
     }
 
     if (char === '>') {
@@ -177,6 +204,10 @@ function tokenizeKeySequence(sequence: string): string[] {
     key = '';
   }
 
+  if (isBracketedKey) {
+    rawTokenize(key);
+  }
+
   return result;
 }
 
@@ -184,9 +215,10 @@ async function testIt(modeHandler: ModeHandler, testObj: ITestObject): Promise<v
   modeHandler.vimState.editor = vscode.window.activeTextEditor!;
 
   let helper = new TestObjectHelper(testObj);
+  const jumpTracker = modeHandler.vimState.globalState.jumpTracker;
 
   // Don't try this at home, kids.
-  (modeHandler as any)._vimState.cursorPosition = new Position(0, 0);
+  (modeHandler as any).vimState.cursorPosition = new Position(0, 0);
 
   await modeHandler.handleKeyEvent('<Esc>');
 
@@ -197,7 +229,7 @@ async function testIt(modeHandler: ModeHandler, testObj: ITestObject): Promise<v
 
   await modeHandler.handleMultipleKeyEvents(['<Esc>', 'g', 'g']);
 
-  await waitForCursorUpdatesToHappen();
+  await waitForCursorSync();
 
   // Since we bypassed VSCodeVim to add text,
   // we need to tell the history tracker that we added it.
@@ -207,19 +239,27 @@ async function testIt(modeHandler: ModeHandler, testObj: ITestObject): Promise<v
   // move cursor to start position using 'hjkl'
   await modeHandler.handleMultipleKeyEvents(helper.getKeyPressesToMoveToStartPosition());
 
-  await waitForCursorUpdatesToHappen();
+  await waitForCursorSync();
 
-  Globals.modeHandlerForTesting = modeHandler;
+  Globals.mockModeHandler = modeHandler;
 
-  // assumes key presses are single characters for now
-  await modeHandler.handleMultipleKeyEvents(tokenizeKeySequence(testObj.keysPressed));
+  let keysPressed = testObj.keysPressed;
+  if (process.platform === 'win32') {
+    keysPressed = keysPressed.replace(/\\n/g, '\\r\\n');
+  }
+
+  jumpTracker.clearJumps();
+
+  // assumes key presses are single characters for nowkA
+  await modeHandler.handleMultipleKeyEvents(tokenizeKeySequence(keysPressed));
 
   // Check valid test object input
   assert(helper.isValid, "Missing '|' in test object.");
 
   // end: check given end output is correct
   //
-  assertEqualLines(helper.asVimOutputText());
+  const lines = helper.asVimOutputText();
+  assertEqualLines(lines);
   // Check final cursor position
   //
   let actualPosition = Position.FromVSCodePosition(TextEditor.getSelection().start);
@@ -236,6 +276,26 @@ async function testIt(modeHandler: ModeHandler, testObj: ITestObject): Promise<v
     let actualMode = ModeName[modeHandler.currentMode.name].toUpperCase();
     let expectedMode = ModeName[testObj.endMode].toUpperCase();
     assert.equal(actualMode, expectedMode, "Didn't enter correct mode.");
+  }
+
+  // jumps: check jumps are correct if given
+  if (typeof testObj.jumps !== 'undefined') {
+    assert.deepEqual(
+      jumpTracker.jumps.map(j => lines[j.position.line] || '<MISSING>'),
+      testObj.jumps.map(t => t.replace('|', '')),
+      'Incorrect jumps found'
+    );
+
+    const stripBar = text => (text ? text.replace('|', '') : text);
+    const actualJumpPosition =
+      (jumpTracker.currentJump && lines[jumpTracker.currentJump.position.line]) || '<FRONT>';
+    const expectedJumpPosition = stripBar(testObj.jumps.find(t => t.includes('|'))) || '<FRONT>';
+
+    assert.deepEqual(
+      actualJumpPosition.toString(),
+      expectedJumpPosition.toString(),
+      'Incorrect jump position found'
+    );
   }
 }
 

@@ -1,9 +1,16 @@
-import { setupWorkspace, cleanUpWorkspace, assertEqualLines, assertEqual } from './../testUtils';
-import { ModeName } from '../../src/mode/mode';
-import { TextEditor } from '../../src/textEditor';
-import { ModeHandler } from '../../src/mode/modeHandler';
-import { getTestingFunctions } from '../testSimplifier';
 import { getAndUpdateModeHandler } from '../../extension';
+import { ModeName } from '../../src/mode/mode';
+import { ModeHandler } from '../../src/mode/modeHandler';
+import { TextEditor } from '../../src/textEditor';
+import { getTestingFunctions } from '../testSimplifier';
+import {
+  assertEqual,
+  assertEqualLines,
+  cleanUpWorkspace,
+  setupWorkspace,
+  reloadConfiguration,
+} from './../testUtils';
+import { Globals } from '../../src/globals';
 
 suite('Mode Insert', () => {
   let modeHandler: ModeHandler;
@@ -18,13 +25,14 @@ suite('Mode Insert', () => {
   teardown(cleanUpWorkspace);
 
   test('can be activated', async () => {
-    let activationKeys = ['o', 'I', 'i', 'O', 'a', 'A'];
+    let activationKeys = ['o', 'I', 'i', 'O', 'a', 'A', '<insert>'];
 
     for (let key of activationKeys) {
+      await modeHandler.handleKeyEvent('<Esc>');
+      assertEqual(modeHandler.currentMode.name, ModeName.Normal);
+
       await modeHandler.handleKeyEvent(key);
       assertEqual(modeHandler.currentMode.name, ModeName.Insert);
-
-      await modeHandler.handleKeyEvent('<Esc>');
     }
   });
 
@@ -171,6 +179,27 @@ suite('Mode Insert', () => {
     end: ['foo|bar'],
   });
 
+  newTest({
+    title: 'Can handle <C-u>',
+    start: ['text |text'],
+    keysPressed: 'i<C-u>',
+    end: ['|text'],
+  });
+
+  newTest({
+    title: 'Can handle <C-u> on leading characters',
+    start: ['{', '  foo: |true', '}'],
+    keysPressed: 'i<C-u>',
+    end: ['{', '  |true', '}'],
+  });
+
+  newTest({
+    title: 'Can handle <C-u> on leading whitespace',
+    start: ['{', '  |true', '}'],
+    keysPressed: 'i<C-u>',
+    end: ['{', '|true', '}'],
+  });
+
   test('Correctly places the cursor after deleting the previous line break', async () => {
     await modeHandler.handleMultipleKeyEvents([
       'i',
@@ -241,6 +270,14 @@ suite('Mode Insert', () => {
   });
 
   newTest({
+    title:
+      'Can perform <ctrl+o> to exit and perform one command in normal at the beginning of a row',
+    start: ['|testtest'],
+    keysPressed: 'i<C-o>l123',
+    end: ['t123|esttest'],
+  });
+
+  newTest({
     title: 'Can perform insert command prefixed with count',
     start: ['tes|t'],
     keysPressed: '2i_<Esc>',
@@ -276,6 +313,13 @@ suite('Mode Insert', () => {
   });
 
   newTest({
+    title: 'Can perform command prefixed with count with <C-[>',
+    start: ['|'],
+    keysPressed: '3i*<C-[>',
+    end: ['**|*'],
+  });
+
+  newTest({
     title: "Can handle 'o' with count",
     start: ['|foobar'],
     keysPressed: '5ofun<Esc>',
@@ -287,5 +331,35 @@ suite('Mode Insert', () => {
     start: ['|foobar'],
     keysPressed: '5Ofun<Esc>',
     end: ['fun', 'fun', 'fun', 'fun', 'fu|n', 'foobar'],
+  });
+
+  test('Can handle digraph insert', async () => {
+    await modeHandler.handleMultipleKeyEvents([
+      'i',
+      't',
+      'e',
+      'x',
+      't',
+      '<C-k>',
+      '-',
+      '>',
+      't',
+      'e',
+      'x',
+      't',
+      '<C-k>',
+      '>',
+      '-',
+    ]);
+    assertEqualLines(['text→text→']);
+  });
+
+  test('Can handle custom digraph insert', async () => {
+    Globals.mockConfiguration.digraphs = {
+      'R!': ['🚀', [55357, 56960]],
+    };
+    await reloadConfiguration();
+    await modeHandler.handleMultipleKeyEvents(['i', '<C-k>', 'R', '!', '<C-k>', '!', 'R']);
+    assertEqualLines(['🚀🚀']);
   });
 });
