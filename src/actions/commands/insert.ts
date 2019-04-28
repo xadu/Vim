@@ -21,6 +21,7 @@ import {
 } from './actions';
 import { DefaultDigraphs } from './digraphs';
 import { Clipboard } from '../../util/clipboard';
+import { Macro } from '../../macro';
 
 @RegisterAction
 class CommandEscInsertMode extends BaseCommand {
@@ -379,7 +380,7 @@ class CommandInsertRegisterContent extends BaseCommand {
 
     if (register.text instanceof Array) {
       text = (register.text as string[]).join('\n');
-    } else if (register.text instanceof RecordedState) {
+    } else if (register.text instanceof RecordedState || register.text instanceof Macro) {
       vimState.recordedState.transformations.push({
         type: 'macro',
         register: vimState.recordedState.registerName,

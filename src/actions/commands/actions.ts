@@ -1,10 +1,14 @@
 import * as vscode from 'vscode';
-
+import { Jump } from '../../jumps/jump';
+import { Macro } from '../../macro';
 import { RecordedState } from '../../state/recordedState';
 import { ReplaceState } from '../../state/replaceState';
 import { VimState } from '../../state/vimState';
-import { getCursorsAfterSync, waitForCursorSync } from '../../util/util';
+import { StatusBar } from '../../statusBar';
 import { Clipboard } from '../../util/clipboard';
+import { ReportClear, ReportLinesChanged } from '../../util/statusBarTextUtils';
+import { getCursorsAfterSync, waitForCursorSync } from '../../util/util';
+import { commandLine } from './../../cmd_line/commandLine';
 import { FileCommand } from './../../cmd_line/commands/file';
 import { OnlyCommand } from './../../cmd_line/commands/only';
 import { QuitCommand } from './../../cmd_line/commands/quit';
@@ -19,12 +23,8 @@ import { Register, RegisterMode } from './../../register/register';
 import { SearchDirection, SearchState } from './../../state/searchState';
 import { EditorScrollByUnit, EditorScrollDirection, TextEditor } from './../../textEditor';
 import { isTextTransformation } from './../../transformations/transformations';
-import { RegisterAction } from './../base';
-import { BaseAction } from './../base';
-import { commandLine } from './../../cmd_line/commandLine';
+import { BaseAction, RegisterAction } from './../base';
 import * as operator from './../operator';
-import { Jump } from '../../jumps/jump';
-import { ReportLinesChanged, ReportClear } from '../../util/statusBarTextUtils';
 
 export class DocumentContentChangeAction extends BaseAction {
   contentChanges: {
@@ -363,6 +363,8 @@ class CommandInsertRegisterContentInSearchMode extends BaseCommand {
       }
 
       text = keyStrokes.join('\n');
+    } else if (register.text instanceof Macro) {
+      text = register.text.keysPressed.join('\n');
     } else {
       text = register.text;
     }
@@ -384,14 +386,14 @@ class CommandRecordMacro extends BaseCommand {
 
   public async exec(position: Position, vimState: VimState): Promise<VimState> {
     const register = this.keysPressed[1];
-    vimState.recordedMacro = new RecordedState();
+    vimState.recordedMacro = new Macro();
     vimState.recordedMacro.registerName = register.toLocaleLowerCase();
 
     if (!/^[A-Z]+$/.test(register) || !Register.has(register)) {
       // If register name is upper case, it means we are appending commands to existing register instead of overriding.
-      let newRegister = new RecordedState();
-      newRegister.registerName = register;
-      Register.putByKey(newRegister, register);
+      let macro = new Macro();
+      macro.registerName = register;
+      Register.putByKey(macro, register);
     }
 
     vimState.isRecordingMacro = true;
@@ -422,8 +424,17 @@ export class CommandQuitRecordMacro extends BaseCommand {
 
   public async exec(position: Position, vimState: VimState): Promise<VimState> {
     let existingMacro = (await Register.getByKey(vimState.recordedMacro.registerName))
-      .text as RecordedState;
-    existingMacro.actionsRun = existingMacro.actionsRun.concat(vimState.recordedMacro.actionsRun);
+      .text as Macro;
+    const newKeysPressed = vimState.recordedMacro.actionsRun.reduce(
+      (acc, a) => {
+        acc.push(...a.keysPressed);
+        return acc;
+      },
+      [] as string[]
+    );
+    vimState.recordedMacro.actionsRun = [];
+    existingMacro.keysPressed = existingMacro.keysPressed.concat(newKeysPressed);
+    console.log('recorded macro', existingMacro);
     vimState.isRecordingMacro = false;
     return vimState;
   }
@@ -1320,6 +1331,34 @@ export class MarkCommand extends BaseCommand {
 }
 
 @RegisterAction
+export class CommandYankMacro extends BaseCommand {
+  modes = [ModeName.Visual, ModeName.VisualLine];
+  keys = ['Q'];
+
+  public async exec(position: Position, vimState: VimState): Promise<VimState> {
+    const selection = TextEditor.getSelection();
+    const end = new Position(selection.end.line, selection.end.character + 1);
+    const keysPressedJson = TextEditor.getText(selection.with(selection.start, end));
+    let keysPressed: string[] = [];
+    try {
+      keysPressed = JSON.parse(keysPressedJson.trim());
+    } catch (e) {
+      StatusBar.Set(e.toString(), vimState.currentMode, vimState.isRecordingMacro, true);
+    }
+    const register = await Register.get(vimState);
+    if (register.text instanceof Macro) {
+      register.text.keysPressed = keysPressed;
+    } else {
+      let macro = new Macro();
+      macro.registerName = vimState.recordedState.registerName;
+      macro.keysPressed = keysPressed;
+      Register.putByKey(macro, vimState.recordedState.registerName);
+    }
+    return vimState;
+  }
+}
+
+@RegisterAction
 export class PutCommand extends BaseCommand {
   keys = ['p'];
   modes = [ModeName.Normal];
@@ -1374,6 +1413,13 @@ export class PutCommand extends BaseCommand {
         replay: 'keystrokes',
       });
       return vimState;
+    } else if (register.text instanceof Macro) {
+      return this.execVisualBlockPaste(
+        [JSON.stringify(register.text.keysPressed)],
+        position,
+        vimState,
+        after
+      );
     } else if (typeof register.text === 'object' && vimState.currentMode === ModeName.VisualBlock) {
       return this.execVisualBlockPaste(register.text, position, vimState, after);
     }
@@ -1609,7 +1655,7 @@ export class GPutCommand extends BaseCommand {
     const register = await Register.get(vimState);
     let addedLinesCount: number;
 
-    if (register.text instanceof RecordedState) {
+    if (register.text instanceof RecordedState || register.text instanceof Macro) {
       vimState.recordedState.transformations.push({
         type: 'macro',
         register: vimState.recordedState.registerName,
@@ -1758,7 +1804,7 @@ export class GPutBeforeCommand extends BaseCommand {
     const register = await Register.get(vimState);
     let addedLinesCount: number;
 
-    if (register.text instanceof RecordedState) {
+    if (register.text instanceof RecordedState || register.text instanceof Macro) {
       vimState.recordedState.transformations.push({
         type: 'macro',
         register: vimState.recordedState.registerName,

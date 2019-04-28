@@ -5,7 +5,11 @@ import { ModeName } from './../../../mode/mode';
 import { RegisterAction } from './../../base';
 import { BaseCommand } from './../../commands/actions';
 import { EasyMotion } from './easymotion';
-import { EasyMotionCharMoveOpions, EasyMotionMoveOptionsBase, EasyMotionWordMoveOpions } from './types';
+import {
+  EasyMotionCharMoveOpions,
+  EasyMotionMoveOptionsBase,
+  EasyMotionWordMoveOpions,
+} from './types';
 
 export interface EasymotionTrigger {
   key: string;
@@ -13,7 +17,10 @@ export interface EasymotionTrigger {
 }
 
 export function buildTriggerKeys(trigger: EasymotionTrigger) {
-  return [...Array.from({ length: trigger.leaderCount || 2 }, () => '<leader>'), ...trigger.key.split('')];
+  return [
+    ...Array.from({ length: trigger.leaderCount || 2 }, () => '<leader>'),
+    ...trigger.key.split(''),
+  ];
 }
 
 abstract class BaseEasyMotionCommand extends BaseCommand {
@@ -100,7 +107,7 @@ function getMatchesForString(
   position: Position,
   vimState: VimState,
   searchString: string,
-  options?: EasyMotion.SearchOptions,
+  options?: EasyMotion.SearchOptions
 ): EasyMotion.Match[] {
   switch (searchString) {
     case '':
@@ -110,9 +117,14 @@ function getMatchesForString(
       return vimState.easyMotion.sortedSearch(position, new RegExp(' {1,}', 'g'), options);
     default:
       // Search all occurences of the character pressed
-      const ignorecase = configuration.ignorecase && !(configuration.smartcase && /[A-Z]/.test(searchString));
+      const ignorecase =
+        configuration.ignorecase && !(configuration.smartcase && /[A-Z]/.test(searchString));
       const regexFlags = ignorecase ? 'gi' : 'g';
-      return vimState.easyMotion.sortedSearch(position, new RegExp(searchString, regexFlags), options);
+      return vimState.easyMotion.sortedSearch(
+        position,
+        new RegExp(searchString, regexFlags),
+        options
+      );
   }
 }
 
@@ -146,7 +158,12 @@ export class SearchByCharCommand extends BaseEasyMotionCommand implements EasyMo
   }
 
   public getMatches(position: Position, vimState: VimState): EasyMotion.Match[] {
-    return getMatchesForString(position, vimState, this._searchString, this.searchOptions(position));
+    return getMatchesForString(
+      position,
+      vimState,
+      this._searchString,
+      this.searchOptions(position)
+    );
   }
 
   public updateSearchString(s: string) {
@@ -203,7 +220,12 @@ export class SearchByNCharCommand extends BaseEasyMotionCommand implements EasyM
   }
 
   public getMatches(position: Position, vimState: VimState): EasyMotion.Match[] {
-    return getMatchesForString(position, vimState, this.removeTrailingLineBreak(this._searchString), {});
+    return getMatchesForString(
+      position,
+      vimState,
+      this.removeTrailingLineBreak(this._searchString),
+      {}
+    );
   }
 
   private removeTrailingLineBreak(s: string) {
@@ -275,7 +297,7 @@ export class EasyMotionWordMoveCommandBase extends BaseEasyMotionCommand {
   private getMatchesForWord(
     position: Position,
     vimState: VimState,
-    options?: EasyMotion.SearchOptions,
+    options?: EasyMotion.SearchOptions
   ): EasyMotion.Match[] {
     const regex = this._options.jumpToAnywhere
       ? new RegExp(configuration.easymotionJumpToAnywhereRegex, 'g')
@@ -303,7 +325,7 @@ export class EasyMotionLineMoveCommandBase extends BaseEasyMotionCommand {
   private getMatchesForLineStart(
     position: Position,
     vimState: VimState,
-    options?: EasyMotion.SearchOptions,
+    options?: EasyMotion.SearchOptions
   ): EasyMotion.Match[] {
     // Search for the beginning of all non whitespace chars on each line before the cursor
     const matches = vimState.easyMotion.sortedSearch(position, new RegExp('^.', 'gm'), options);

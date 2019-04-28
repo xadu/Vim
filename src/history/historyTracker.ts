@@ -18,6 +18,7 @@ import { RecordedState } from './../state/recordedState';
 import { Logger } from './../util/logger';
 import { VimState } from './../state/vimState';
 import { TextEditor } from './../textEditor';
+import { Macro } from '../macro';
 
 const diffEngine = new DiffMatchPatch.diff_match_patch();
 diffEngine.Diff_Timeout = 1; // 1 second
@@ -163,7 +164,7 @@ export class HistoryTracker {
   // Current index in changelist for navigation, resets when a new change is made
   public changelistIndex = 0;
 
-  public lastInvokedMacro: RecordedState;
+  public lastInvokedMacro: Macro;
 
   /**
    * The entire Undo/Redo stack.

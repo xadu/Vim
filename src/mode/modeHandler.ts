@@ -32,6 +32,7 @@ import {
   isTextTransformation,
   TextTransformations,
 } from './../transformations/transformations';
+import { Macro } from '../macro';
 
 export class ModeHandler implements vscode.Disposable {
   private _disposables: vscode.Disposable[] = [];
@@ -921,20 +922,14 @@ export class ModeHandler implements vscode.Disposable {
           vimState.globalState.previousFullAction = clonedAction;
           break;
         case 'macro':
-          let recordedMacro = (await Register.getByKey(command.register)).text as RecordedState;
+          let recordedMacro = (await Register.getByKey(command.register)).text as Macro;
 
           vimState.isReplayingMacro = true;
 
-          if (command.replay === 'contentChange') {
-            vimState = await this.runMacro(vimState, recordedMacro);
-          } else {
-            let keyStrokes: string[] = [];
-            for (let action of recordedMacro.actionsRun) {
-              keyStrokes = keyStrokes.concat(action.keysPressed);
-            }
-            this.vimState.recordedState = new RecordedState();
-            await this.handleMultipleKeyEvents(keyStrokes);
-          }
+          const keysPressed = recordedMacro.keysPressed;
+          console.log('macro replay "keystrokes"', command, keysPressed);
+          this.vimState.recordedState = new RecordedState();
+          await this.handleMultipleKeyEvents(keysPressed);
 
           vimState.isReplayingMacro = false;
           vimState.historyTracker.lastInvokedMacro = recordedMacro;

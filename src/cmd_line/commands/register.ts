@@ -4,6 +4,7 @@ import { VimState } from '../../state/vimState';
 import { Register } from '../../register/register';
 import { RecordedState } from '../../state/recordedState';
 import * as node from '../node';
+import { Macro } from '../../macro';
 
 export interface IRegisterCommandArguments extends node.ICommandArgs {
   arg?: string;
@@ -27,6 +28,8 @@ export class RegisterCommand extends node.CommandBase {
       result = result.join('\n').substr(0, 100);
     } else if (result instanceof RecordedState) {
       result = result.actionsRun.map(x => x.keysPressed.join('')).join('');
+    } else if (result instanceof Macro) {
+      result = result.keysPressed.join('');
     }
 
     return result;

@@ -9,6 +9,7 @@ import {
 import { DeleteOperator, YankOperator } from './../actions/operator';
 import { RecordedState } from './../state/recordedState';
 import { VimState } from './../state/vimState';
+import { Macro } from '../macro';
 
 /**
  * There are two different modes of copy/paste in Vim - copy by character
@@ -23,7 +24,7 @@ export enum RegisterMode {
   BlockWise,
 }
 
-export type RegisterContent = string | string[] | RecordedState;
+export type RegisterContent = string | string[] | RecordedState | Macro;
 
 export interface IRegisterContent {
   text: RegisterContent;
@@ -398,7 +399,7 @@ export class Register {
       let text = Register.registers[lowercaseRegister].text;
 
       let registerText: RegisterContent;
-      if (text instanceof RecordedState) {
+      if (text instanceof RecordedState || text instanceof Macro) {
         registerText = text;
       } else {
         if (vimState && vimState.isMultiCursor && typeof text === 'object') {

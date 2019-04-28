@@ -14,6 +14,7 @@ import { RecordedState } from './recordedState';
 import { RegisterMode } from './../register/register';
 import { ReplaceState } from './../state/replaceState';
 import { globalState } from './../state/globalState';
+import { Macro } from '../macro';
 
 /**
  * The VimState class holds permanent state that carries over from action
@@ -236,7 +237,7 @@ export class VimState implements vscode.Disposable {
 
   public recordedState = new RecordedState();
 
-  public recordedMacro = new RecordedState();
+  public recordedMacro = new Macro();
 
   public nvim: NeovimWrapper;
 
