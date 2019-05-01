@@ -515,6 +515,8 @@ export class HistoryTracker {
 
     step = this.currentHistoryStep;
 
+    console.log('currentHistoryStep', this.currentHistoryStep);
+
     for (const change of step.changes.slice(0).reverse()) {
       await change!.undo();
     }
