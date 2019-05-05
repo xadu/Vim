@@ -1,12 +1,10 @@
 import * as vscode from 'vscode';
-import { Jump } from '../../jumps/jump';
 import { Macro } from '../../macro';
 import { RecordedState } from '../../state/recordedState';
 import { ReplaceState } from '../../state/replaceState';
 import { VimState } from '../../state/vimState';
 import { StatusBar } from '../../statusBar';
 import { Clipboard } from '../../util/clipboard';
-import { ReportClear, ReportLinesChanged } from '../../util/statusBarTextUtils';
 import { getCursorsAfterSync, waitForCursorSync } from '../../util/util';
 import { commandLine } from './../../cmd_line/commandLine';
 import { FileCommand } from './../../cmd_line/commands/file';
@@ -25,6 +23,8 @@ import { EditorScrollByUnit, EditorScrollDirection, TextEditor } from './../../t
 import { isTextTransformation } from './../../transformations/transformations';
 import { BaseAction, RegisterAction } from './../base';
 import * as operator from './../operator';
+import { Jump } from '../../jumps/jump';
+import { ReportLinesChanged, ReportClear, ReportFileInfo } from '../../util/statusBarTextUtils';
 
 export class DocumentContentChangeAction extends BaseAction {
   contentChanges: {
@@ -701,7 +701,10 @@ class CommandMoveHalfPageDown extends CommandEditorScroll {
       if (newPositionLine > maxLineValue) {
         newPosition = new Position(0, 0).getDocumentEnd();
       } else {
-        const newPositionColumn = Math.min(startColumn, TextEditor.getLineMaxColumn(newPositionLine));
+        const newPositionColumn = Math.min(
+          startColumn,
+          TextEditor.getLineMaxColumn(newPositionLine)
+        );
         newPosition = new Position(newPositionLine, newPositionColumn);
       }
     }
@@ -903,28 +906,7 @@ class CommandInsertInSearchMode extends BaseCommand {
         }
       }
 
-      // Store this search if different than previous
-      if (vimState.globalState.searchStatePrevious.length !== 0) {
-        let previousSearchState = vimState.globalState.searchStatePrevious;
-        if (
-          searchState.searchString !==
-          previousSearchState[previousSearchState.length - 1]!.searchString
-        ) {
-          previousSearchState.push(searchState);
-          await vimState.globalState.addNewSearchHistoryItem(searchState.searchString);
-        }
-      } else {
-        vimState.globalState.searchStatePrevious.push(searchState);
-        await vimState.globalState.addNewSearchHistoryItem(searchState.searchString);
-      }
-
-      // Make sure search history does not exceed configuration option
-      if (vimState.globalState.searchStatePrevious.length > configuration.history) {
-        vimState.globalState.searchStatePrevious.splice(0, 1);
-      }
-
-      // Update the index to the end of the search history
-      vimState.globalState.searchStateIndex = vimState.globalState.searchStatePrevious.length - 1;
+      vimState.globalState.addSearchStateToHistory(searchState);
 
       // Move cursor to next match
       vimState.cursorStopPosition = searchState.getNextSearchMatchPosition(
@@ -1158,7 +1140,7 @@ async function searchCurrentSelection(vimState: VimState, direction: SearchDirec
   });
 }
 
-function createSearchStateAndMoveToMatch(args: {
+async function createSearchStateAndMoveToMatch(args: {
   needle?: string | undefined;
   vimState: VimState;
   direction: SearchDirection;
@@ -1188,6 +1170,8 @@ function createSearchStateAndMoveToMatch(args: {
 
   // Turn one of the highlighting flags back on (turned off with :nohl)
   vimState.globalState.hl = true;
+
+  vimState.globalState.addSearchStateToHistory(vimState.globalState.searchState);
 
   return vimState;
 }
@@ -4308,6 +4292,22 @@ class ActionOverrideCmdAltUp extends BaseCommand {
   public async exec(position: Position, vimState: VimState): Promise<VimState> {
     await vscode.commands.executeCommand('editor.action.insertCursorAbove');
     vimState.cursors = await getCursorsAfterSync();
+
+    return vimState;
+  }
+}
+
+@RegisterAction
+class ActionShowFileInfo extends BaseCommand {
+  modes = [ModeName.Normal];
+  keys = [['<C-g>']];
+
+  runsOnceForEveryCursor() {
+    return false;
+  }
+
+  public async exec(position: Position, vimState: VimState): Promise<VimState> {
+    ReportFileInfo(position, vimState);
 
     return vimState;
   }
